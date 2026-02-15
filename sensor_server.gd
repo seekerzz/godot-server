@@ -86,9 +86,13 @@ func _process(delta):
 	if udp_socket and udp_socket.is_bound():
 		var packet = udp_socket.get_packet()
 		if packet.size() > 0:
-			var data = packet.get_string_from_utf8()
-			print("[接收] 数据大小: ", packet.size(), ", 数据: ", data)
-			parse_sensor_data(data)
+			var data_str = packet.get_string_from_utf8()
+			# 只打印前100字符避免日志过长
+			var log_str = data_str.substr(0, 100)
+			if data_str.length() > 100:
+				log_str += "..."
+			print("[接收] 大小: ", packet.size(), ", 数据: ", log_str)
+			parse_sensor_data(data_str)
 		elif frame_count % 60 == 0:
 			print("[帧", frame_count, "] 等待数据...")
 
@@ -150,10 +154,14 @@ func parse_sensor_data(json_str: String):
 		status_label.modulate = Color.RED
 
 	# 如果是回放数据，保存到回放缓存
-	if data.get("playback", false) and is_receiving_playback:
-		playback_data_buffer.append(data.duplicate())
-		status_label.text = "接收回放数据... [" + str(playback_data_buffer.size()) + "/" + str(data.get("total_frames", 0)) + " 帧]"
-		status_label.modulate = Color.CYAN
+	if data.get("playback", false):
+		if is_receiving_playback:
+			playback_data_buffer.append(data.duplicate())
+			status_label.text = "接收回放数据... [" + str(playback_data_buffer.size()) + "/" + str(data.get("total_frames", 0)) + " 帧]"
+			status_label.modulate = Color.CYAN
+			print("[回放接收] 帧 " + str(data.get("frame_index", 0)) + "/" + str(data.get("total_frames", 0)))
+		else:
+			print("[回放接收] 警告: 收到回放数据但未处于接收状态")
 
 func update_phone_visualization(delta: float):
 	# 使用陀螺仪积分计算旋转
@@ -337,9 +345,13 @@ func start_receiving_playback(data: Dictionary):
 	is_receiving_playback = true
 	playback_data_buffer.clear()
 	current_playback_filename = data.get("filename", "unknown")
-	var frame_count = data.get("frame_count", 0)
-	print("[回放接收] 开始接收回放数据: ", current_playback_filename, ", 预期帧数: ", frame_count)
-	status_label.text = "开始接收回放数据... [0/" + str(frame_count) + "]"
+	var fc = data.get("frame_count", 0)
+	print("[回放接收] ============================")
+	print("[回放接收] 开始接收回放数据")
+	print("[回放接收] 文件名: ", current_playback_filename)
+	print("[回放接收] 预期帧数: ", fc)
+	print("[回放接收] ============================")
+	status_label.text = "开始接收回放数据... [0/" + str(fc) + "]"
 	status_label.modulate = Color.CYAN
 
 func stop_receiving_playback():
