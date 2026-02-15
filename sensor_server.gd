@@ -6,6 +6,7 @@ extends Node3D
 const SERVER_PORT := 49555
 const CLIENT_PORT := 9877
 const MAX_TRAJECTORY_POINTS := 500
+const PI := 3.14159265359
 
 var udp_socket: PacketPeerUDP
 
@@ -19,7 +20,7 @@ var magneto_data := Vector3.ZERO
 var velocity := Vector3.ZERO
 var phone_position := Vector3.ZERO
 var rotation_velocity := Vector3.ZERO
-var current_rotation := Vector3.ZERO
+var current_rotation := Quaternion.IDENTITY
 
 # 轨迹记录
 var trajectory_points: Array[Vector3] = []
@@ -42,6 +43,13 @@ var local_playback_index: int = 0
 var local_playback_timer: float = 0.0
 const PLAYBACK_FPS := 20.0  # 回放帧率
 
+# 文件传输接收
+var file_transfer_in_progress := false
+var file_transfer_filename := ""
+var file_transfer_total_chunks := 0
+var file_transfer_chunks: Dictionary = {}
+var file_transfer_buffer := ""
+
 # UI引用
 @onready var status_label: Label = %StatusLabel
 @onready var accel_label: Label = %AccelLabel
@@ -51,10 +59,38 @@ const PLAYBACK_FPS := 20.0  # 回放帧率
 @onready var trajectory_container: Node3D = %TrajectoryContainer
 @onready var phone_model: Node3D = $PhoneModel
 
+# 按钮引用
+@onready var list_files_button: Button = %ListFilesButton
+@onready var load_recent_button: Button = %LoadRecentButton
+@onready var playback_button: Button = %PlaybackButton
+@onready var clear_button: Button = %ClearButton
+@onready var reset_button: Button = %ResetButton
+@onready var file_list_label: Label = %FileListLabel
+
+# 初始姿态校准
+var initial_rotation_offset: Quaternion = Quaternion.IDENTITY
+var is_initial_pose_set := false
+var initial_gravity := Vector3.ZERO
+var initial_magneto := Vector3.ZERO
+
 func _ready():
 	start_server()
 	create_ground_grid()
-	print("[控制] 按键说明: R=重置视角 | C=清除轨迹 | L=加载录制文件 | P=本地回放 | S=保存回放数据 | ESC=退出")
+	connect_buttons()
+	print("[控制] 按键说明: R=重置视角 | C=清除轨迹 | L=加载最近文件 | O=查看接收文件 | P=回放 | S=保存数据 | ESC=退出")
+	print("[提示] 接收的文件保存在 received_files/ 文件夹，也可以使用右侧按钮操作")
+
+func connect_buttons():
+	if list_files_button:
+		list_files_button.pressed.connect(list_received_files)
+	if load_recent_button:
+		load_recent_button.pressed.connect(load_most_recent_received_file)
+	if playback_button:
+		playback_button.pressed.connect(toggle_local_playback)
+	if clear_button:
+		clear_button.pressed.connect(clear_trajectory)
+	if reset_button:
+		reset_button.pressed.connect(reset_view_with_calibration)
 
 func start_server():
 	udp_socket = PacketPeerUDP.new()
@@ -80,20 +116,23 @@ func _process(delta):
 		if local_playback_timer >= (1.0 / PLAYBACK_FPS):
 			local_playback_timer = 0.0
 			process_local_playback_frame()
+		# 回放时也更新可视化
+		update_phone_visualization(delta)
+		update_ui()
 		return
 
 	# 接收UDP数据
 	if udp_socket and udp_socket.is_bound():
-		var packet = udp_socket.get_packet()
-		if packet.size() > 0:
-			var data_str = packet.get_string_from_utf8()
-			# 只打印前100字符避免日志过长
-			var log_str = data_str.substr(0, 100)
-			if data_str.length() > 100:
-				log_str += "..."
-			print("[接收] 大小: ", packet.size(), ", 数据: ", log_str)
-			parse_sensor_data(data_str)
-		elif frame_count % 60 == 0:
+		var packet_count = 0
+		# 处理所有可用数据包
+		while udp_socket.get_available_packet_count() > 0:
+			var packet = udp_socket.get_packet()
+			packet_count += 1
+			if packet.size() > 0:
+				var data_str = packet.get_string_from_utf8()
+				parse_sensor_data(data_str)
+
+		if packet_count == 0 and frame_count % 60 == 0:
 			print("[帧", frame_count, "] 等待数据...")
 
 	# 更新手机3D模型
@@ -115,6 +154,7 @@ func parse_sensor_data(json_str: String):
 	# 处理标记类型
 	if data.has("type"):
 		var marker_type = data["type"]
+		print("[标记] 收到类型: ", marker_type)
 		match marker_type:
 			"record_start":
 				start_recording()
@@ -127,6 +167,15 @@ func parse_sensor_data(json_str: String):
 				return
 			"playback_stop":
 				stop_receiving_playback()
+				return
+			"file_transfer_start":
+				handle_file_transfer_start(data)
+				return
+			"file_chunk":
+				handle_file_chunk(data)
+				return
+			"file_transfer_end":
+				handle_file_transfer_end(data)
 				return
 		return
 
@@ -147,6 +196,10 @@ func parse_sensor_data(json_str: String):
 		var m = data["magneto"]
 		magneto_data = Vector3(m["x"], m["y"], m["z"])
 
+	# 首次接收数据时校准初始姿态
+	if not is_initial_pose_set and gravity_data != Vector3.ZERO:
+		calibrate_initial_pose()
+
 	# 如果是录制数据，保存到缓存
 	if data.get("recorded", false) and is_recording:
 		recorded_data.append(data.duplicate())
@@ -163,17 +216,68 @@ func parse_sensor_data(json_str: String):
 		else:
 			print("[回放接收] 警告: 收到回放数据但未处于接收状态")
 
-func update_phone_visualization(delta: float):
-	# 使用陀螺仪积分计算旋转
-	rotation_velocity = gyro_data
-	current_rotation += rotation_velocity * delta
+func calibrate_initial_pose():
+	print("[姿态校准] 开始初始姿态校准...")
+	initial_gravity = gravity_data.normalized()
+	initial_magneto = magneto_data.normalized()
 
-	# 应用旋转到手机模型 (注意坐标系转换)
-	phone_model.rotation = Vector3(
-		current_rotation.x,
-		-current_rotation.z,  # Godot的Y轴对应手机的Z轴旋转
-		current_rotation.y
-	)
+	# 记录初始姿态作为参考点
+	# 手机默认姿态：头朝上(Y+)，充电口朝向自己(Z+)，屏幕面朝上
+	# 初始重力向量记录手机当前的"下方"方向
+	print("[姿态校准] 初始重力向量(参考): ", initial_gravity)
+	print("[姿态校准] 初始磁力向量(参考): ", initial_magneto)
+
+	is_initial_pose_set = true
+	status_label.text = "姿态已校准"
+
+func reset_view_with_calibration():
+	reset_view()
+	is_initial_pose_set = false
+	initial_rotation_offset = Quaternion.IDENTITY
+	initial_gravity = Vector3.ZERO
+	initial_magneto = Vector3.ZERO
+	current_rotation = Quaternion.IDENTITY
+	print("[姿态校准] 已重置，等待新数据重新校准...")
+	status_label.text = "已重置，等待姿态校准..."
+
+func reset_view_with_calibration():
+	reset_view()
+	is_initial_pose_set = false
+	initial_rotation_offset = Quaternion.IDENTITY
+	initial_gravity = Vector3.ZERO
+	print("[姿态校准] 已重置，等待新数据重新校准...")
+	status_label.text = "已重置，等待姿态校准..."
+
+func update_phone_visualization(delta: float):
+	# 如果还未校准，不更新姿态
+	if not is_initial_pose_set:
+		return
+
+	# 使用重力向量计算当前姿态
+	var current_gravity = gravity_data.normalized()
+
+	# 计算从初始重力到当前重力的旋转
+	# 这表示手机相对于初始姿态的旋转
+	var gravity_rotation = Quaternion.IDENTITY
+	if initial_gravity.length() > 0.001 and current_gravity.length() > 0.001:
+		var cross = initial_gravity.cross(current_gravity)
+		if cross.length() > 0.001:
+			var angle = initial_gravity.angle_to(current_gravity)
+			gravity_rotation = Quaternion(cross.normalized(), angle)
+
+	# 使用陀螺仪进行短时间积分（补充快速旋转）
+	if gyro_data.length() > 0.001:
+		var gyro_angle = gyro_data.length() * delta
+		var gyro_axis = gyro_data.normalized()
+		var gyro_quat = Quaternion(gyro_axis, gyro_angle)
+		current_rotation = gyro_quat * current_rotation
+
+	# 综合姿态：基于初始姿态 + 当前旋转变化
+	# 默认手机头朝上(Y+)，屏幕朝前(Z+)
+	var final_rotation = gravity_rotation * current_rotation
+
+	# 应用旋转到手机模型
+	phone_model.quaternion = final_rotation
 
 	# 使用加速度计计算位置 (双重积分)
 	var linear_accel = accel_data - gravity_data
@@ -268,7 +372,9 @@ func _input(event):
 			KEY_C:
 				clear_trajectory()
 			KEY_L:
-				load_local_recording()
+				load_most_recent_received_file()
+			KEY_O:
+				list_received_files()
 			KEY_P:
 				toggle_local_playback()
 			KEY_S:
@@ -277,7 +383,7 @@ func _input(event):
 func reset_view():
 	phone_position = Vector3.ZERO
 	velocity = Vector3.ZERO
-	current_rotation = Vector3.ZERO
+	current_rotation = Quaternion.IDENTITY
 	phone_model.position = phone_position
 	phone_model.rotation = Vector3.ZERO
 
@@ -458,14 +564,26 @@ func toggle_local_playback():
 
 func start_local_playback():
 	if local_playback_frames.is_empty():
-		print("[本地回放] 请先按 L 键加载录制文件")
+		print("[本地回放] 请先加载录制文件")
 		return
 
 	is_local_playing = true
 	local_playback_index = 0
 	local_playback_timer = 0.0
 	clear_trajectory()
-	reset_view()
+	reset_view_with_calibration()
+
+	# 从第一帧进行姿态校准
+	if local_playback_frames.size() > 0:
+		var first_frame = local_playback_frames[0]
+		if first_frame.has("gravity"):
+			var gr = first_frame["gravity"]
+			gravity_data = Vector3(gr["x"], gr["y"], gr["z"])
+			if first_frame.has("magneto"):
+				var m = first_frame["magneto"]
+				magneto_data = Vector3(m["x"], m["y"], m["z"])
+			calibrate_initial_pose()
+
 	print("[本地回放] 开始回放，共 ", local_playback_frames.size(), " 帧")
 
 func stop_local_playback():
@@ -498,5 +616,288 @@ func process_local_playback_frame():
 		var m = frame["magneto"]
 		magneto_data = Vector3(m["x"], m["y"], m["z"])
 
+	# 第一帧进行姿态校准
+	if local_playback_index == 0 and not is_initial_pose_set:
+		calibrate_initial_pose()
+
 	local_playback_index += 1
 	status_label.text = "本地回放: %d/%d" % [local_playback_index, local_playback_frames.size()]
+
+# ===== 文件传输接收功能 =====
+
+func handle_file_transfer_start(data: Dictionary):
+	file_transfer_in_progress = true
+	file_transfer_filename = data.get("filename", "unknown.json")
+	file_transfer_total_chunks = data.get("total_chunks", 0)
+	file_transfer_chunks.clear()
+	file_transfer_buffer = ""
+
+	print("[文件接收] ============================")
+	print("[文件接收] 开始接收文件")
+	print("[文件接收] 文件名: ", file_transfer_filename)
+	print("[文件接收] 总分片数: ", file_transfer_total_chunks)
+	print("[文件接收] ============================")
+
+	status_label.text = "接收文件: " + file_transfer_filename
+	status_label.modulate = Color.CYAN
+
+func handle_file_chunk(data: Dictionary):
+	if not file_transfer_in_progress:
+		print("[文件接收] 警告: 收到文件分片但传输未开始")
+		return
+
+	var chunk_index = int(data.get("chunk_index", 0))
+	var chunk_data = data.get("data", "")
+	var filename = data.get("filename", "unknown")
+
+	# 打印每个分片的接收日志（仅打印前5个和每10个）
+	if chunk_index < 5 or chunk_index % 10 == 0:
+		print("[文件接收] 收到分片 #", chunk_index, " 大小: ", chunk_data.length(), " 字节")
+
+	file_transfer_chunks[chunk_index] = chunk_data
+
+	var progress = int(float(file_transfer_chunks.size()) / file_transfer_total_chunks * 100)
+	status_label.text = "接收文件... %d%% [%d/%d]" % [progress, file_transfer_chunks.size(), file_transfer_total_chunks]
+
+	if file_transfer_chunks.size() % 10 == 0 or file_transfer_chunks.size() == file_transfer_total_chunks:
+		print("[文件接收] 进度: ", file_transfer_chunks.size(), "/", file_transfer_total_chunks, " (", progress, "%)")
+
+func handle_file_transfer_end(data: Dictionary):
+	if not file_transfer_in_progress:
+		return
+
+	file_transfer_in_progress = false
+
+	# 统计丢失的分片
+	var missing_chunks: Array[int] = []
+	for i in range(file_transfer_total_chunks):
+		if not file_transfer_chunks.has(i):
+			missing_chunks.append(i)
+
+	var received_count = file_transfer_chunks.size()
+	var total_count = file_transfer_total_chunks
+	var missing_count = missing_chunks.size()
+
+	print("[文件接收] ============================")
+	print("[文件接收] 传输完成统计")
+	print("[文件接收] 总分片: ", total_count)
+	print("[文件接收] 已接收: ", received_count)
+	print("[文件接收] 丢失: ", missing_count)
+	if missing_count > 0:
+		print("[文件接收] 丢失分片编号: ", missing_chunks)
+	print("[文件接收] ============================")
+
+	# 即使丢失分片也尝试重组文件
+	file_transfer_buffer = ""
+	for i in range(file_transfer_total_chunks):
+		if file_transfer_chunks.has(i):
+			file_transfer_buffer += file_transfer_chunks[i]
+
+	print("[文件接收] 文件内容重组完成，大小: ", file_transfer_buffer.length(), " 字节")
+
+	# 保存文件到项目目录下的 received_files 文件夹
+	var save_dir = "res://received_files/"
+	var save_filename = save_dir + "received_" + file_transfer_filename.get_file()
+
+	# 确保目录存在
+	var dir = DirAccess.open("res://")
+	if dir and not dir.dir_exists("received_files"):
+		dir.make_dir("received_files")
+		print("[文件接收] 创建目录: " + save_dir)
+
+	var file = FileAccess.open(save_filename, FileAccess.WRITE)
+	if file:
+		file.store_string(file_transfer_buffer)
+		file.close()
+		print("[文件接收] 文件已保存: ", save_filename)
+	else:
+		print("[文件接收] 错误: 保存文件失败")
+		status_label.text = "保存文件失败"
+		return
+
+	# 保存传输记录
+	var transfer_record = {
+		"filename": file_transfer_filename,
+		"saved_path": save_filename,
+		"total_chunks": total_count,
+		"received_chunks": received_count,
+		"missing_chunks": missing_chunks,
+		"file_size": file_transfer_buffer.length(),
+		"timestamp": Time.get_unix_time_from_system(),
+		"complete": missing_count == 0
+	}
+	append_transfer_log(transfer_record)
+
+	if missing_count == 0:
+		status_label.text = "文件接收完成: " + save_filename.get_file()
+		status_label.modulate = Color.GREEN
+		print("[文件接收] 准备自动回放...")
+		load_and_play_file(save_filename)
+	else:
+		status_label.text = "文件已保存(不完整): 丢失 %d 分片" % missing_count
+		status_label.modulate = Color.ORANGE
+		print("[文件接收] 警告: 文件不完整，已保存但不回放")
+		print("[提示] 按 O 键查看接收文件列表，按 L 键加载最近文件")
+
+func append_transfer_log(record: Dictionary):
+	var log_path = "res://received_files/transfer_log.txt"
+	var log_entry = "[%s] %s | 完成: %s | 分片: %d/%d | 大小: %d 字节\n" % [
+		Time.get_datetime_string_from_system(),
+		record["filename"],
+		"是" if record["complete"] else "否",
+		record["received_chunks"],
+		record["total_chunks"],
+		record["file_size"]
+	]
+	var file = FileAccess.open(log_path, FileAccess.READ_WRITE)
+	if not file:
+		file = FileAccess.open(log_path, FileAccess.WRITE)
+	else:
+		file.seek_end()
+	file.store_string(log_entry)
+	file.close()
+	print("[日志] 已记录传输: ", record["filename"])
+
+func list_received_files():
+	print("\n========== 接收文件列表 ==========")
+	var dir = DirAccess.open("res://received_files/")
+	if not dir:
+		print("没有接收文件目录或目录为空")
+		update_file_list_ui([])
+		return
+
+	dir.list_dir_begin()
+	var file_name = dir.get_next()
+	var files: Array[String] = []
+
+	while file_name != "":
+		if file_name.begins_with("received_") and file_name.ends_with(".json"):
+			files.append(file_name)
+		file_name = dir.get_next()
+
+	if files.is_empty():
+		print("没有接收到的文件")
+		update_file_list_ui([])
+		return
+
+	files.sort()
+	files.reverse()
+
+	# 更新UI显示
+	update_file_list_ui(files)
+
+	# 打印到控制台
+	for i in range(files.size()):
+		var f = files[i]
+		var file_obj = FileAccess.open("res://received_files/" + f, FileAccess.READ)
+		var size_str = "未知"
+		if file_obj:
+			var content = file_obj.get_as_text()
+			size_str = str(content.length()) + " 字节"
+			file_obj.close()
+		print("[%d] %s (%s)" % [i + 1, f, size_str])
+
+	print("====================================")
+
+func update_file_list_ui(files: Array[String]):
+	if not file_list_label:
+		return
+
+	if files.is_empty():
+		file_list_label.text = "接收文件列表:\n(暂无文件)"
+		return
+
+	var text = "接收文件列表:\n"
+	for i in range(min(files.size(), 5)):  # 最多显示5个
+		var f = files[i]
+		var file_obj = FileAccess.open("res://received_files/" + f, FileAccess.READ)
+		var size_str = "未知"
+		if file_obj:
+			var content = file_obj.get_as_text()
+			size_str = str(content.length() / 1024.0).substr(0, 4) + "KB"
+			file_obj.close()
+		# 简化文件名显示
+		var display_name = f.replace("received_record_", "").replace(".json", "")
+		text += "[%d] %s (%s)\n" % [i + 1, display_name, size_str]
+
+	if files.size() > 5:
+		text += "...还有 %d 个文件" % (files.size() - 5)
+
+	file_list_label.text = text
+
+func load_most_recent_received_file():
+	print("\n[加载] 查找最近接收的文件...")
+	var dir = DirAccess.open("res://received_files/")
+	if not dir:
+		print("[加载] 接收文件目录不存在")
+		return
+
+	dir.list_dir_begin()
+	var file_name = dir.get_next()
+	var files: Array[String] = []
+
+	while file_name != "":
+		if file_name.begins_with("received_") and file_name.ends_with(".json"):
+			files.append(file_name)
+		file_name = dir.get_next()
+
+	if files.is_empty():
+		print("[加载] 没有找到接收的文件")
+		return
+
+	files.sort()
+	files.reverse()
+
+	var most_recent = files[0]
+	print("[加载] 找到最近文件: ", most_recent)
+	load_and_play_file("res://received_files/" + most_recent)
+
+func load_and_play_file(filepath: String):
+	print("[自动回放] 加载文件: ", filepath)
+
+	var file = FileAccess.open(filepath, FileAccess.READ)
+	if not file:
+		print("[自动回放] 错误: 无法打开文件")
+		return
+
+	var content = file.get_as_text()
+	file.close()
+
+	var json = JSON.new()
+	var err = json.parse(content)
+	if err != OK:
+		print("[自动回放] 错误: JSON解析失败")
+		return
+
+	var data = json.get_data()
+	local_playback_frames.clear()
+
+	var frames_array = []
+	if data.has("frames"):
+		frames_array = data["frames"]
+	elif data.has("data"):
+		frames_array = data["data"]
+
+	# 转换为正确类型
+	for frame in frames_array:
+		if typeof(frame) == TYPE_DICTIONARY:
+			local_playback_frames.append(frame)
+
+	if local_playback_frames.is_empty():
+		print("[自动回放] 错误: 没有有效帧数据")
+		return
+
+	print("[自动回放] 加载完成，共 ", local_playback_frames.size(), " 帧")
+
+	# 从第一帧提取姿态信息用于校准
+	if local_playback_frames.size() > 0:
+		var first_frame = local_playback_frames[0]
+		if first_frame.has("gravity"):
+			var gr = first_frame["gravity"]
+			gravity_data = Vector3(gr["x"], gr["y"], gr["z"])
+			if first_frame.has("magneto"):
+				var m = first_frame["magneto"]
+				magneto_data = Vector3(m["x"], m["y"], m["z"])
+
+	# 自动开始回放
+	start_local_playback()

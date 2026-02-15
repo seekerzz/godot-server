@@ -20,6 +20,15 @@ emission_enabled = true
 emission = Color(0, 0.3, 0.8, 1)
 emission_energy = 0.5
 
+[sub_resource type="BoxMesh" id="BoxMesh_top_marker"]
+size = Vector3(0.3, 0.3, 0.22)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_top_marker"]
+albedo_color = Color(1, 0, 0, 1)
+emission_enabled = true
+emission = Color(1, 0, 0, 1)
+emission_energy = 1.0
+
 [node name="Main" type="Node3D"]
 script = ExtResource("1_server")
 
@@ -33,6 +42,7 @@ light_energy = 1.5
 shadow_enabled = true
 
 [node name="PhoneModel" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 0)
 script = ExtResource("2_visual")
 
 [node name="PhoneBody" type="MeshInstance3D" parent="PhoneModel"]
@@ -43,6 +53,16 @@ surface_material_override/0 = SubResource("StandardMaterial3D_phone")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0.11)
 mesh = SubResource("BoxMesh_screen")
 surface_material_override/0 = SubResource("StandardMaterial3D_screen")
+
+[node name="TopMarker" type="MeshInstance3D" parent="PhoneModel"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.2, 0)
+mesh = SubResource("BoxMesh_top_marker")
+surface_material_override/0 = SubResource("StandardMaterial3D_top_marker")
+
+[node name="BottomMarker" type="MeshInstance3D" parent="PhoneModel"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.2, 0)
+mesh = SubResource("BoxMesh_top_marker")
+surface_material_override/0 = SubResource("StandardMaterial3D_top_marker")
 
 [node name="TrajectoryContainer" type="Node3D" parent="."]
 unique_name_in_owner = true
@@ -58,7 +78,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-mouse_filter = 2
+mouse_filter = 0
 
 [node name="VBoxContainer" type="VBoxContainer" parent="UI"]
 layout_mode = 1
@@ -104,8 +124,80 @@ text = "位置: X: 0.000 Y: 0.000 Z: 0.000"
 [node name="Instructions" type="Label" parent="UI/VBoxContainer"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 14
-text = "R: 重置视角 | C: 清除轨迹 | L: 加载录制 | P: 回放 | S: 保存数据 | ESC: 退出"
+text = "快捷按钮在右侧"
 vertical_alignment = 2
+
+[node name="FileListPanel" type="Panel" parent="UI"]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -300.0
+offset_top = 20.0
+offset_right = -20.0
+offset_bottom = 200.0
+grow_horizontal = 0
+
+[node name="FileListLabel" type="Label" parent="UI/FileListPanel"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 10.0
+offset_top = 10.0
+offset_right = -10.0
+offset_bottom = -10.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_font_sizes/font_size = 14
+text = "接收文件列表:\n(点击'查看接收文件'按钮)"
+autowrap_mode = 3
+
+[node name="ButtonPanel" type="VBoxContainer" parent="UI"]
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -180.0
+offset_top = -300.0
+offset_right = -20.0
+offset_bottom = -20.0
+grow_horizontal = 0
+grow_vertical = 0
+theme_override_constants/separation = 10
+
+[node name="ListFilesButton" type="Button" parent="UI/ButtonPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "查看接收文件 (O)"
+
+[node name="LoadRecentButton" type="Button" parent="UI/ButtonPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "加载最近文件 (L)"
+
+[node name="PlaybackButton" type="Button" parent="UI/ButtonPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "开始回放 (P)"
+
+[node name="ClearButton" type="Button" parent="UI/ButtonPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "清除轨迹 (C)"
+
+[node name="ResetButton" type="Button" parent="UI/ButtonPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "重置视角 (R)"
 
 [node name="Timer" type="Timer" parent="."]
 wait_time = 0.05
