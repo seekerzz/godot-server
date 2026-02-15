@@ -1,0 +1,16 @@
+# Godot generated files
+.godot/
+*.tmp
+
+# Build artifacts
+*.exe
+*.pck
+*.apk
+
+# Log files
+*.log
+nul
+
+# OS files
+.DS_Store
+Thumbs.db

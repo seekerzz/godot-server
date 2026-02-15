@@ -1,0 +1,22 @@
+; Engine configuration file.
+; PC端传感器数据接收与3D可视化
+
+config_version=5
+
+[application]
+
+config/name="PC传感器数据接收端"
+config/description="接收手机传感器数据并3D可视化"
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.3", "Forward Plus")
+config/icon="res://icon.svg"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/stretch/mode="canvas_items"
+
+[rendering]
+
+renderer/rendering_method="forward_plus"
