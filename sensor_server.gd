@@ -1,9 +1,13 @@
 extends Node3D
 
 # PC端传感器数据接收与3D可视化
-# 通过配对服务接收手机传感器数据
+# 通过UDP接收手机传感器数据
 
+const SERVER_PORT := 49555
+const CLIENT_PORT := 9877
 const MAX_TRAJECTORY_POINTS := 500
+
+var udp_socket: PacketPeerUDP
 
 # 传感器数据
 var accel_data := Vector3.ZERO
@@ -21,13 +25,10 @@ var current_rotation := Vector3.ZERO
 var trajectory_points: Array[Vector3] = []
 var trajectory_lines: Array[MeshInstance3D] = []
 
-# 客户端管理
-var active_clients: Dictionary = {}  # {port: {"ip": String, "accel": Vector3, ...}}
-
 # 录制数据缓存
 var is_recording := false
 var recorded_data: Array[Dictionary] = []
-var current_record_date := ""  # 当前录制日期（用于文件名）
+var current_record_date := ""
 
 # UI引用
 @onready var status_label: Label = %StatusLabel
@@ -37,38 +38,53 @@ var current_record_date := ""  # 当前录制日期（用于文件名）
 @onready var position_label: Label = %PositionLabel
 @onready var trajectory_container: Node3D = %TrajectoryContainer
 @onready var phone_model: Node3D = $PhoneModel
-@onready var pairing_info_label: Label = %PairingInfoLabel
-
-var discovery_server: Node
 
 func _ready():
-	# 启动发现服务
-	discovery_server = preload("res://discovery_server.gd").new()
-	discovery_server.name = "DiscoveryServer"
-	add_child(discovery_server)
-
-	# 连接信号
-	discovery_server.client_authenticated.connect(_on_client_authenticated)
-	discovery_server.client_disconnected.connect(_on_client_disconnected)
-
+	start_server()
 	create_ground_grid()
-	update_status("等待配对...")
 
-func set_pairing_info(code: String, ports: Array[int]):
-	"""由发现服务调用，更新配对信息显示"""
-	if pairing_info_label:
-		var port_str := ""
-		for i in range(min(ports.size(), 5)):
-			if i > 0:
-				port_str += ", "
-			port_str += str(ports[i])
-		if ports.size() > 5:
-			port_str += "..."
-		pairing_info_label.text = "配对码: %s\n发现端口: %s" % [code, port_str]
+func start_server():
+	udp_socket = PacketPeerUDP.new()
+	var err = udp_socket.bind(SERVER_PORT, "0.0.0.0")
+	if err == OK:
+		status_label.text = "状态: 服务器已启动 (端口 %d)" % SERVER_PORT
+		status_label.modulate = Color.GREEN
+		print("[服务器] 已在端口 ", SERVER_PORT, " 启动")
+		print("[服务器] 已绑定: ", udp_socket.is_bound())
+	else:
+		status_label.text = "状态: 服务器启动失败 (%d)" % err
+		status_label.modulate = Color.RED
+		print("[服务器] 启动失败: ", err)
 
-func on_sensor_data_received(port: int, data: Dictionary):
-	"""处理从发现服务转发过来的传感器数据"""
-	if not active_clients.has(port):
+var frame_count := 0
+
+func _process(delta):
+	frame_count += 1
+	# 接收UDP数据
+	if udp_socket and udp_socket.is_bound():
+		# 直接尝试获取数据包
+		var packet = udp_socket.get_packet()
+		if packet.size() > 0:
+			var data = packet.get_string_from_utf8()
+			print("[接收] 数据大小: ", packet.size(), ", 数据: ", data)
+			parse_sensor_data(data)
+		elif frame_count % 60 == 0:
+			print("[帧", frame_count, "] 等待数据...")
+
+	# 更新手机3D模型
+	update_phone_visualization(delta)
+
+	# 更新UI
+	update_ui()
+
+func parse_sensor_data(json_str: String):
+	var json = JSON.new()
+	var err = json.parse(json_str)
+	if err != OK:
+		return
+
+	var data = json.get_data()
+	if typeof(data) != TYPE_DICTIONARY:
 		return
 
 	# 处理录制标记
@@ -83,111 +99,28 @@ func on_sensor_data_received(port: int, data: Dictionary):
 	# 如果是录制数据，保存到缓存
 	if data.get("recorded", false) and is_recording:
 		recorded_data.append(data.duplicate())
-		update_status("接收中... [录制 " + str(recorded_data.size()) + " 帧]")
+		status_label.text = "接收中... [录制 " + str(recorded_data.size()) + " 帧]"
+		status_label.modulate = Color.RED
 
 	# 解析加速度计
 	if data.has("accel"):
 		var a = data["accel"]
 		accel_data = Vector3(a["x"], a["y"], a["z"])
-		active_clients[port]["accel"] = accel_data
 
 	# 解析陀螺仪
 	if data.has("gyro"):
 		var g = data["gyro"]
 		gyro_data = Vector3(g["x"], g["y"], g["z"])
-		active_clients[port]["gyro"] = gyro_data
 
 	# 解析重力
 	if data.has("gravity"):
 		var gr = data["gravity"]
 		gravity_data = Vector3(gr["x"], gr["y"], gr["z"])
-		active_clients[port]["gravity"] = gravity_data
 
 	# 解析磁力计
 	if data.has("magneto"):
 		var m = data["magneto"]
 		magneto_data = Vector3(m["x"], m["y"], m["z"])
-		active_clients[port]["magneto"] = magneto_data
-
-func _on_client_authenticated(client_ip: String, data_port: int):
-	"""客户端配对成功"""
-	active_clients[data_port] = {
-		"ip": client_ip,
-		"accel": Vector3.ZERO,
-		"gyro": Vector3.ZERO,
-		"gravity": Vector3.ZERO,
-		"magneto": Vector3.ZERO
-	}
-	update_status("已连接: " + client_ip + ":" + str(data_port))
-	print("[主程序] 客户端连接: ", client_ip, ":", data_port)
-
-func _on_client_disconnected(data_port: int):
-	"""客户端断开"""
-	active_clients.erase(data_port)
-	update_status("客户端断开: " + str(data_port))
-
-func update_status(text: String):
-	if status_label:
-		status_label.text = "状态: " + text
-		if is_recording:
-			status_label.modulate = Color.RED
-		else:
-			status_label.modulate = Color.GREEN if text.begins_with("已连接") else Color.YELLOW
-
-func start_recording():
-	if is_recording:
-		return
-
-	is_recording = true
-	recorded_data.clear()
-
-	# 使用当前日期作为文件名
-	var datetime = Time.get_datetime_dict_from_system()
-	current_record_date = "%04d%02d%02d_%02d%02d%02d" % [
-		datetime.year, datetime.month, datetime.day,
-		datetime.hour, datetime.minute, datetime.second
-	]
-
-	update_status("开始录制...")
-	print("[录制] 开始录制，文件名前缀: ", current_record_date)
-
-func stop_recording():
-	if not is_recording:
-		return
-
-	is_recording = false
-	update_status("录制结束，保存中...")
-
-	# 保存录制数据到文件
-	save_recorded_data()
-
-func save_recorded_data():
-	if recorded_data.is_empty():
-		print("[录制] 没有数据需要保存")
-		return
-
-	var filename = "user://record_%s.json" % current_record_date
-	var file = FileAccess.open(filename, FileAccess.WRITE)
-	if file:
-		var output = {
-			"record_date": current_record_date,
-			"frame_count": recorded_data.size(),
-			"data": recorded_data
-		}
-		file.store_string(JSON.stringify(output, "\t"))
-		file.close()
-		print("[录制] 数据已保存到: ", filename, " (", recorded_data.size(), " 帧)")
-		update_status("录制已保存: " + filename.get_file())
-	else:
-		print("[录制] 保存失败")
-		update_status("保存失败")
-
-func _process(delta):
-	# 更新手机3D模型（使用最新的传感器数据）
-	update_phone_visualization(delta)
-
-	# 更新UI
-	update_ui()
 
 func update_phone_visualization(delta: float):
 	# 使用陀螺仪积分计算旋转
@@ -202,13 +135,14 @@ func update_phone_visualization(delta: float):
 	)
 
 	# 使用加速度计计算位置 (双重积分)
+	# 减去重力得到线性加速度
 	var linear_accel = accel_data - gravity_data
 
 	# 低通滤波去除噪声
 	linear_accel = linear_accel * 0.1
 
 	# 速度积分
-	velocity += linear_accel * delta * 2.0
+	velocity += linear_accel * delta * 2.0  # 缩放因子
 
 	# 阻尼衰减，防止漂移
 	velocity *= 0.98
@@ -307,11 +241,6 @@ func _input(event):
 		if event.pressed and event.keycode == KEY_C:
 			clear_trajectory()
 
-		if event.pressed and event.keycode == KEY_R:
-			# 重新生成配对码
-			if discovery_server:
-				discovery_server.regenerate_pairing_code()
-
 func reset_view():
 	phone_position = Vector3.ZERO
 	velocity = Vector3.ZERO
@@ -324,3 +253,57 @@ func clear_trajectory():
 	for line in trajectory_lines:
 		line.queue_free()
 	trajectory_lines.clear()
+
+func _on_timer_timeout():
+	# 定时发送心跳给客户端（可选）
+	pass
+
+func start_recording():
+	if is_recording:
+		return
+
+	is_recording = true
+	recorded_data.clear()
+
+	# 使用当前日期作为文件名
+	var datetime = Time.get_datetime_dict_from_system()
+	current_record_date = "%04d%02d%02d_%02d%02d%02d" % [
+		datetime.year, datetime.month, datetime.day,
+		datetime.hour, datetime.minute, datetime.second
+	]
+
+	status_label.text = "开始录制..."
+	status_label.modulate = Color.RED
+	print("[录制] 开始录制，文件名前缀: ", current_record_date)
+
+func stop_recording():
+	if not is_recording:
+		return
+
+	is_recording = false
+	status_label.text = "录制结束，保存中..."
+
+	# 保存录制数据到文件
+	save_recorded_data()
+
+func save_recorded_data():
+	if recorded_data.is_empty():
+		print("[录制] 没有数据需要保存")
+		return
+
+	var filename = "user://record_%s.json" % current_record_date
+	var file = FileAccess.open(filename, FileAccess.WRITE)
+	if file:
+		var output = {
+			"record_date": current_record_date,
+			"frame_count": recorded_data.size(),
+			"data": recorded_data
+		}
+		file.store_string(JSON.stringify(output, "\t"))
+		file.close()
+		print("[录制] 数据已保存到: ", filename, " (", recorded_data.size(), " 帧)")
+		status_label.text = "录制已保存: " + filename.get_file()
+		status_label.modulate = Color.GREEN
+	else:
+		print("[录制] 保存失败")
+		status_label.text = "保存失败"
