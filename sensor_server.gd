@@ -24,6 +24,11 @@ var trajectory_lines: Array[MeshInstance3D] = []
 # 客户端管理
 var active_clients: Dictionary = {}  # {port: {"ip": String, "accel": Vector3, ...}}
 
+# 录制数据缓存
+var is_recording := false
+var recorded_data: Array[Dictionary] = []
+var current_record_date := ""  # 当前录制日期（用于文件名）
+
 # UI引用
 @onready var status_label: Label = %StatusLabel
 @onready var accel_label: Label = %AccelLabel
@@ -65,6 +70,20 @@ func on_sensor_data_received(port: int, data: Dictionary):
 	"""处理从发现服务转发过来的传感器数据"""
 	if not active_clients.has(port):
 		return
+
+	# 处理录制标记
+	if data.has("type"):
+		if data["type"] == "record_start":
+			start_recording()
+			return
+		elif data["type"] == "record_stop":
+			stop_recording()
+			return
+
+	# 如果是录制数据，保存到缓存
+	if data.get("recorded", false) and is_recording:
+		recorded_data.append(data.duplicate())
+		update_status("接收中... [录制 " + str(recorded_data.size()) + " 帧]")
 
 	# 解析加速度计
 	if data.has("accel"):
@@ -110,7 +129,58 @@ func _on_client_disconnected(data_port: int):
 func update_status(text: String):
 	if status_label:
 		status_label.text = "状态: " + text
-		status_label.modulate = Color.GREEN if text.begins_with("已连接") else Color.YELLOW
+		if is_recording:
+			status_label.modulate = Color.RED
+		else:
+			status_label.modulate = Color.GREEN if text.begins_with("已连接") else Color.YELLOW
+
+func start_recording():
+	if is_recording:
+		return
+
+	is_recording = true
+	recorded_data.clear()
+
+	# 使用当前日期作为文件名
+	var datetime = Time.get_datetime_dict_from_system()
+	current_record_date = "%04d%02d%02d_%02d%02d%02d" % [
+		datetime.year, datetime.month, datetime.day,
+		datetime.hour, datetime.minute, datetime.second
+	]
+
+	update_status("开始录制...")
+	print("[录制] 开始录制，文件名前缀: ", current_record_date)
+
+func stop_recording():
+	if not is_recording:
+		return
+
+	is_recording = false
+	update_status("录制结束，保存中...")
+
+	# 保存录制数据到文件
+	save_recorded_data()
+
+func save_recorded_data():
+	if recorded_data.is_empty():
+		print("[录制] 没有数据需要保存")
+		return
+
+	var filename = "user://record_%s.json" % current_record_date
+	var file = FileAccess.open(filename, FileAccess.WRITE)
+	if file:
+		var output = {
+			"record_date": current_record_date,
+			"frame_count": recorded_data.size(),
+			"data": recorded_data
+		}
+		file.store_string(JSON.stringify(output, "\t"))
+		file.close()
+		print("[录制] 数据已保存到: ", filename, " (", recorded_data.size(), " 帧)")
+		update_status("录制已保存: " + filename.get_file())
+	else:
+		print("[录制] 保存失败")
+		update_status("保存失败")
 
 func _process(delta):
 	# 更新手机3D模型（使用最新的传感器数据）
