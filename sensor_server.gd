@@ -30,6 +30,18 @@ var is_recording := false
 var recorded_data: Array[Dictionary] = []
 var current_record_date := ""
 
+# 回放数据缓存（来自手机）
+var is_receiving_playback := false
+var playback_data_buffer: Array[Dictionary] = []
+var current_playback_filename := ""
+
+# 本地回放
+var is_local_playing := false
+var local_playback_frames: Array[Dictionary] = []
+var local_playback_index: int = 0
+var local_playback_timer: float = 0.0
+const PLAYBACK_FPS := 20.0  # 回放帧率
+
 # UI引用
 @onready var status_label: Label = %StatusLabel
 @onready var accel_label: Label = %AccelLabel
@@ -42,6 +54,7 @@ var current_record_date := ""
 func _ready():
 	start_server()
 	create_ground_grid()
+	print("[控制] 按键说明: R=重置视角 | C=清除轨迹 | L=加载录制文件 | P=本地回放 | S=保存回放数据 | ESC=退出")
 
 func start_server():
 	udp_socket = PacketPeerUDP.new()
@@ -60,9 +73,17 @@ var frame_count := 0
 
 func _process(delta):
 	frame_count += 1
+
+	# 处理本地回放
+	if is_local_playing:
+		local_playback_timer += delta
+		if local_playback_timer >= (1.0 / PLAYBACK_FPS):
+			local_playback_timer = 0.0
+			process_local_playback_frame()
+		return
+
 	# 接收UDP数据
 	if udp_socket and udp_socket.is_bound():
-		# 直接尝试获取数据包
 		var packet = udp_socket.get_packet()
 		if packet.size() > 0:
 			var data = packet.get_string_from_utf8()
@@ -87,14 +108,40 @@ func parse_sensor_data(json_str: String):
 	if typeof(data) != TYPE_DICTIONARY:
 		return
 
-	# 处理录制标记
+	# 处理标记类型
 	if data.has("type"):
-		if data["type"] == "record_start":
-			start_recording()
-			return
-		elif data["type"] == "record_stop":
-			stop_recording()
-			return
+		var marker_type = data["type"]
+		match marker_type:
+			"record_start":
+				start_recording()
+				return
+			"record_stop":
+				stop_recording()
+				return
+			"playback_start":
+				start_receiving_playback(data)
+				return
+			"playback_stop":
+				stop_receiving_playback()
+				return
+		return
+
+	# 处理传感器数据
+	if data.has("accel"):
+		var a = data["accel"]
+		accel_data = Vector3(a["x"], a["y"], a["z"])
+
+	if data.has("gyro"):
+		var g = data["gyro"]
+		gyro_data = Vector3(g["x"], g["y"], g["z"])
+
+	if data.has("gravity"):
+		var gr = data["gravity"]
+		gravity_data = Vector3(gr["x"], gr["y"], gr["z"])
+
+	if data.has("magneto"):
+		var m = data["magneto"]
+		magneto_data = Vector3(m["x"], m["y"], m["z"])
 
 	# 如果是录制数据，保存到缓存
 	if data.get("recorded", false) and is_recording:
@@ -102,25 +149,11 @@ func parse_sensor_data(json_str: String):
 		status_label.text = "接收中... [录制 " + str(recorded_data.size()) + " 帧]"
 		status_label.modulate = Color.RED
 
-	# 解析加速度计
-	if data.has("accel"):
-		var a = data["accel"]
-		accel_data = Vector3(a["x"], a["y"], a["z"])
-
-	# 解析陀螺仪
-	if data.has("gyro"):
-		var g = data["gyro"]
-		gyro_data = Vector3(g["x"], g["y"], g["z"])
-
-	# 解析重力
-	if data.has("gravity"):
-		var gr = data["gravity"]
-		gravity_data = Vector3(gr["x"], gr["y"], gr["z"])
-
-	# 解析磁力计
-	if data.has("magneto"):
-		var m = data["magneto"]
-		magneto_data = Vector3(m["x"], m["y"], m["z"])
+	# 如果是回放数据，保存到回放缓存
+	if data.get("playback", false) and is_receiving_playback:
+		playback_data_buffer.append(data.duplicate())
+		status_label.text = "接收回放数据... [" + str(playback_data_buffer.size()) + "/" + str(data.get("total_frames", 0)) + " 帧]"
+		status_label.modulate = Color.CYAN
 
 func update_phone_visualization(delta: float):
 	# 使用陀螺仪积分计算旋转
@@ -135,19 +168,10 @@ func update_phone_visualization(delta: float):
 	)
 
 	# 使用加速度计计算位置 (双重积分)
-	# 减去重力得到线性加速度
 	var linear_accel = accel_data - gravity_data
-
-	# 低通滤波去除噪声
-	linear_accel = linear_accel * 0.1
-
-	# 速度积分
-	velocity += linear_accel * delta * 2.0  # 缩放因子
-
-	# 阻尼衰减，防止漂移
-	velocity *= 0.98
-
-	# 位置积分
+	linear_accel = linear_accel * 0.1  # 低通滤波
+	velocity += linear_accel * delta * 2.0
+	velocity *= 0.98  # 阻尼
 	phone_position += velocity * delta * 0.5
 
 	# 限制运动范围
@@ -155,7 +179,6 @@ func update_phone_visualization(delta: float):
 	phone_position.y = clamp(phone_position.y, 0.5, 10)
 	phone_position.z = clamp(phone_position.z, -10, 10)
 
-	# 更新手机模型位置
 	phone_model.position = phone_position
 
 	# 记录轨迹
@@ -165,14 +188,12 @@ func update_phone_visualization(delta: float):
 func add_trajectory_point(pos: Vector3):
 	trajectory_points.append(pos)
 
-	# 限制轨迹点数量
 	if trajectory_points.size() > MAX_TRAJECTORY_POINTS:
 		trajectory_points.pop_front()
 		if trajectory_lines.size() > 0:
 			var old_line = trajectory_lines.pop_front()
 			old_line.queue_free()
 
-	# 创建轨迹线段
 	if trajectory_points.size() >= 2:
 		var start_pos = trajectory_points[-2]
 		var end_pos = trajectory_points[-1]
@@ -200,11 +221,8 @@ func create_trajectory_line(start_pos: Vector3, end_pos: Vector3):
 	trajectory_lines.append(mesh_instance)
 
 func create_ground_grid():
-	# 创建地面网格
 	for i in range(-10, 11):
-		# X方向线
 		create_grid_line(Vector3(i, 0, -10), Vector3(i, 0, 10), Color(0.3, 0.3, 0.3, 0.5))
-		# Z方向线
 		create_grid_line(Vector3(-10, 0, i), Vector3(10, 0, i), Color(0.3, 0.3, 0.3, 0.5))
 
 func create_grid_line(start_pos: Vector3, end_pos: Vector3, color: Color):
@@ -237,9 +255,16 @@ func _input(event):
 	if event.is_action_pressed("ui_accept"):
 		reset_view()
 
-	if event is InputEventKey:
-		if event.pressed and event.keycode == KEY_C:
-			clear_trajectory()
+	if event is InputEventKey and event.pressed:
+		match event.keycode:
+			KEY_C:
+				clear_trajectory()
+			KEY_L:
+				load_local_recording()
+			KEY_P:
+				toggle_local_playback()
+			KEY_S:
+				save_playback_buffer_to_file()
 
 func reset_view():
 	phone_position = Vector3.ZERO
@@ -255,8 +280,9 @@ func clear_trajectory():
 	trajectory_lines.clear()
 
 func _on_timer_timeout():
-	# 定时发送心跳给客户端（可选）
 	pass
+
+# ===== 录制功能 =====
 
 func start_recording():
 	if is_recording:
@@ -265,7 +291,6 @@ func start_recording():
 	is_recording = true
 	recorded_data.clear()
 
-	# 使用当前日期作为文件名
 	var datetime = Time.get_datetime_dict_from_system()
 	current_record_date = "%04d%02d%02d_%02d%02d%02d" % [
 		datetime.year, datetime.month, datetime.day,
@@ -282,8 +307,6 @@ func stop_recording():
 
 	is_recording = false
 	status_label.text = "录制结束，保存中..."
-
-	# 保存录制数据到文件
 	save_recorded_data()
 
 func save_recorded_data():
@@ -307,3 +330,161 @@ func save_recorded_data():
 	else:
 		print("[录制] 保存失败")
 		status_label.text = "保存失败"
+
+# ===== 回放数据接收（来自手机）=====
+
+func start_receiving_playback(data: Dictionary):
+	is_receiving_playback = true
+	playback_data_buffer.clear()
+	current_playback_filename = data.get("filename", "unknown")
+	var frame_count = data.get("frame_count", 0)
+	print("[回放接收] 开始接收回放数据: ", current_playback_filename, ", 预期帧数: ", frame_count)
+	status_label.text = "开始接收回放数据... [0/" + str(frame_count) + "]"
+	status_label.modulate = Color.CYAN
+
+func stop_receiving_playback():
+	is_receiving_playback = false
+	status_label.text = "回放接收完成: " + str(playback_data_buffer.size()) + " 帧"
+	status_label.modulate = Color.GREEN
+	print("[回放接收] 完成，共接收 ", playback_data_buffer.size(), " 帧")
+	print("[提示] 按 S 键保存回放数据到文件")
+
+func save_playback_buffer_to_file():
+	if playback_data_buffer.is_empty():
+		print("[回放保存] 没有回放数据可保存")
+		return
+
+	var datetime = Time.get_datetime_dict_from_system()
+	var filename = "user://playback_%04d%02d%02d_%02d%02d%02d_%s.json" % [
+		datetime.year, datetime.month, datetime.day,
+		datetime.hour, datetime.minute, datetime.second,
+		current_playback_filename.get_file().get_basename()
+	]
+
+	var file = FileAccess.open(filename, FileAccess.WRITE)
+	if file:
+		var output = {
+			"receive_date": "%04d-%02d-%02d %02d:%02d:%02d" % [
+				datetime.year, datetime.month, datetime.day,
+				datetime.hour, datetime.minute, datetime.second
+			],
+			"source_filename": current_playback_filename,
+			"frame_count": playback_data_buffer.size(),
+			"frames": playback_data_buffer
+		}
+		file.store_string(JSON.stringify(output, "\t"))
+		file.close()
+		print("[回放保存] 数据已保存到: ", filename)
+		status_label.text = "回放数据已保存: " + filename.get_file()
+	else:
+		print("[回放保存] 保存失败")
+
+# ===== 本地回放功能 =====
+
+func load_local_recording():
+	# 查找最新的录制文件
+	var dir = DirAccess.open("user://")
+	if not dir:
+		print("[本地回放] 无法打开用户目录")
+		return
+
+	dir.list_dir_begin()
+	var file_name = dir.get_next()
+	var files: Array[String] = []
+
+	while file_name != "":
+		if file_name.begins_with("record_") or file_name.begins_with("playback_"):
+			if file_name.ends_with(".json"):
+				files.append(file_name)
+		file_name = dir.get_next()
+
+	if files.is_empty():
+		print("[本地回放] 没有找到录制文件")
+		return
+
+	files.sort()
+	files.reverse()
+
+	var latest_file = files[0]
+	print("[本地回放] 加载文件: ", latest_file)
+
+	var file = FileAccess.open("user://" + latest_file, FileAccess.READ)
+	if not file:
+		print("[本地回放] 无法打开文件")
+		return
+
+	var content = file.get_as_text()
+	file.close()
+
+	var json = JSON.new()
+	var err = json.parse(content)
+	if err != OK:
+		print("[本地回放] 文件解析失败")
+		return
+
+	var data = json.get_data()
+	local_playback_frames.clear()
+
+	if data.has("frames"):
+		local_playback_frames = data["frames"]
+	elif data.has("data"):
+		local_playback_frames = data["data"]
+
+	if local_playback_frames.is_empty():
+		print("[本地回放] 没有有效帧数据")
+		return
+
+	print("[本地回放] 加载完成，共 ", local_playback_frames.size(), " 帧")
+	print("[提示] 按 P 键开始/停止本地回放")
+	status_label.text = "已加载: " + latest_file.get_file() + " [" + str(local_playback_frames.size()) + " 帧]"
+
+func toggle_local_playback():
+	if is_local_playing:
+		stop_local_playback()
+	else:
+		start_local_playback()
+
+func start_local_playback():
+	if local_playback_frames.is_empty():
+		print("[本地回放] 请先按 L 键加载录制文件")
+		return
+
+	is_local_playing = true
+	local_playback_index = 0
+	local_playback_timer = 0.0
+	clear_trajectory()
+	reset_view()
+	print("[本地回放] 开始回放，共 ", local_playback_frames.size(), " 帧")
+
+func stop_local_playback():
+	is_local_playing = false
+	print("[本地回放] 停止回放")
+	status_label.text = "回放已停止"
+
+func process_local_playback_frame():
+	if local_playback_index >= local_playback_frames.size():
+		stop_local_playback()
+		status_label.text = "回放完成"
+		return
+
+	var frame = local_playback_frames[local_playback_index]
+
+	# 解析传感器数据
+	if frame.has("accel"):
+		var a = frame["accel"]
+		accel_data = Vector3(a["x"], a["y"], a["z"])
+
+	if frame.has("gyro"):
+		var g = frame["gyro"]
+		gyro_data = Vector3(g["x"], g["y"], g["z"])
+
+	if frame.has("gravity"):
+		var gr = frame["gravity"]
+		gravity_data = Vector3(gr["x"], gr["y"], gr["z"])
+
+	if frame.has("magneto"):
+		var m = frame["magneto"]
+		magneto_data = Vector3(m["x"], m["y"], m["z"])
+
+	local_playback_index += 1
+	status_label.text = "本地回放: %d/%d" % [local_playback_index, local_playback_frames.size()]

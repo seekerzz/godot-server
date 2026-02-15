@@ -104,7 +104,7 @@ text = "位置: X: 0.000 Y: 0.000 Z: 0.000"
 [node name="Instructions" type="Label" parent="UI/VBoxContainer"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 14
-text = "R: 重置视角 | C: 清除轨迹 | ESC: 退出"
+text = "R: 重置视角 | C: 清除轨迹 | L: 加载录制 | P: 回放 | S: 保存数据 | ESC: 退出"
 vertical_alignment = 2
 
 [node name="Timer" type="Timer" parent="."]
