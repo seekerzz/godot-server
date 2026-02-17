@@ -1,6 +1,6 @@
 extends Node3D
 
-# PC端传感器数据接收与3D可视化 - 乒乓球拍版本
+# PC端传感器数据接收与3D可视化 - 手机模型版本
 # 通过UDP接收手机传感器数据（二进制协议）
 
 const SERVER_PORT := 49555
@@ -17,7 +17,7 @@ var current_rotation := Quaternion.IDENTITY  # 融合后的姿态
 
 # 运动计算 - 弹性回中算法
 var velocity := Vector3.ZERO
-var paddle_position := Vector3.ZERO
+var paddle_position := Vector3.ZERO  # 虽然改叫PhoneModel，但位置变量名可以沿用或者改成phone_position，为了清晰改为phone_position
 
 # 导出变量 - 可调整的运动参数
 @export var friction: float = 5.0  # 速度衰减系数
@@ -25,7 +25,10 @@ var paddle_position := Vector3.ZERO
 @export var origin_position: Vector3 = Vector3.ZERO  # 中心点位置
 @export var max_displacement: float = 5.0  # 最大位移限制
 
-# 轨迹记录
+# 轨迹记录 - 已清除TrailEmitter，但保留轨迹线逻辑（TrajectoryContainer）如果需要的话
+# 任务说明中只说移除 TrailEmitter (粒子发射器)，但保留了 TrajectoryContainer 节点引用。
+# 我们可以保留轨迹线逻辑用于调试，或者根据"不再保留任何粒子特效"以及"清除场景干净"
+# 既然UI还有"清除轨迹"按钮，保留线条轨迹（MeshInstance3D）似乎是合理的，只是不用粒子。
 var trajectory_points: Array[Vector3] = []
 var trajectory_lines: Array[MeshInstance3D] = []
 
@@ -60,8 +63,6 @@ var file_transfer_buffer := ""
 @onready var velocity_label: Label = %VelocityLabel
 @onready var position_label: Label = %PositionLabel
 @onready var trajectory_container: Node3D = %TrajectoryContainer
-@onready var paddle_model: Node3D = $PaddleModel
-@onready var paddle_pivot: Node3D = $PaddleModel/Pivot
 @onready var debug_label_3d: Label3D = %DebugLabel3D
 
 # 按钮引用
@@ -82,28 +83,31 @@ var is_calibrating := false
 var calibration_step := 0
 var calibration_data: Array[Dictionary] = []
 var calibration_messages: Array[String] = [
-"请将手机平放在桌面上，屏幕向上，底部朝向你自己，然后点击确定",
-"请将手机保持平放，屏幕向上，但将手机向右旋转90度(底部朝右)，然后点击确定",
-"请将手机保持平放，屏幕向上，但将手机向左旋转90度(底部朝左)，然后点击确定",
-"请将手机竖直握持，屏幕朝向你，底部朝下，然后点击确定",
-"校准完成！点击确定保存校准数据"
+	"请将手机平放在桌面上，屏幕向上，底部朝向你自己，然后点击确定",
+	"请将手机保持平放，屏幕向上，但将手机向右旋转90度(底部朝右)，然后点击确定",
+	"请将手机保持平放，屏幕向上，但将手机向左旋转90度(底部朝左)，然后点击确定",
+	"请将手机竖直握持，屏幕朝向你，底部朝下，然后点击确定",
+	"校准完成！点击确定保存校准数据"
 ]
 var calibration_poses: Array[String] = [
-"标准平放",
-"向右旋转",
-"向左旋转",
-"竖直握持",
-"完成"
+	"标准平放",
+	"向右旋转",
+	"向左旋转",
+	"竖直握持",
+	"完成"
 ]
-# 手动校准矩阵（通过采样确定）
-var calibration_matrix: Basis = Basis.IDENTITY
-var use_calibration_matrix := false
+
+# 新增变量
+var phone_model: Node3D
+var phone_pivot: Node3D
+var phone_screen_mesh: MeshInstance3D
+var calibration_offset := Quaternion.IDENTITY
 
 func _ready():
 	start_server()
 	create_ground_grid()
 	connect_buttons()
-	create_paddle_model()
+	create_phone_model()  # 使用新的生成函数
 	print("[控制] 按键说明: R=重置视角 | C=清除轨迹 | L=加载最近文件 | O=查看接收文件 | P=回放 | S=保存数据 | ESC=退出")
 	print("[提示] 接收的文件保存在 received_files/ 文件夹，也可以使用右侧按钮操作")
 
@@ -153,7 +157,7 @@ func _process(delta):
 		if local_playback_timer >= (1.0 / PLAYBACK_FPS):
 			local_playback_timer = 0.0
 			process_local_playback_frame()
-		update_paddle_visualization(delta)
+		update_phone_visualization(delta)
 		update_ui()
 		return
 
@@ -179,35 +183,17 @@ func _process(delta):
 					if frame_count % 60 == 0:
 						print("[接收] JSON消息: %s" % data_str.substr(0, 100))
 
-	# 更新乒乓球拍3D模型
-	update_paddle_visualization(delta)
+	# 更新手机模型3D显示
+	update_phone_visualization(delta)
 
 	# 更新UI
 	update_ui()
 
 func parse_binary_sensor_data(packet: PackedByteArray):
-	"""解析28字节的二进制传感器数据包
-	包结构:
-	- UserAccel.x (float, 4 bytes)
-	- UserAccel.y (float, 4 bytes)
-	- UserAccel.z (float, 4 bytes)
-	- Quaternion.x (float, 4 bytes)
-	- Quaternion.y (float, 4 bytes)
-	- Quaternion.z (float, 4 bytes)
-	- Quaternion.w (float, 4 bytes)
-	"""
+	"""解析28字节的二进制传感器数据包"""
 	# 记录原始字节用于调试
 	frame_count += 1
 	var show_debug = frame_count <= 10 or frame_count % 120 == 0
-
-	if show_debug:
-		print("[调试] 原始字节 (hex): ")
-		var hex_str = ""
-		for i in range(min(28, packet.size())):
-			hex_str += "%02x " % packet[i]
-			if (i + 1) % 4 == 0:
-				hex_str += "| "
-		print(hex_str)
 
 	var buffer = StreamPeerBuffer.new()
 	buffer.data_array = packet
@@ -239,7 +225,6 @@ func parse_binary_sensor_data(packet: PackedByteArray):
 			user_accel_data.x, user_accel_data.y, user_accel_data.z,
 			current_rotation.x, current_rotation.y, current_rotation.z, current_rotation.w
 		])
-		print("[调试] 四元数模长: %.6f (应接近1.0)" % current_rotation.length())
 
 	# 如果是录制状态，保存数据
 	if is_recording:
@@ -289,265 +274,159 @@ func parse_control_message(json_str: String):
 				handle_file_transfer_end(data)
 				return
 
-func create_paddle_model():
-	"""程序化创建乒乓球拍模型（如果场景中没有）"""
-	if paddle_model != null:
-		return  # 场景中已经存在
-
-	# 创建球拍根节点
-	paddle_model = Node3D.new()
-	paddle_model.name = "PaddleModel"
-	add_child(paddle_model)
-
-	# 创建旋转中心点（Pivot）
-	var pivot = Node3D.new()
-	pivot.name = "Pivot"
-	paddle_model.add_child(pivot)
-
-	# 创建手柄 - 圆柱体
-	var handle_mesh = CylinderMesh.new()
-	handle_mesh.top_radius = 0.08
-	handle_mesh.bottom_radius = 0.08
-	handle_mesh.height = 1.5
-
-	var handle_material = StandardMaterial3D.new()
-	handle_material.albedo_color = Color(0.4, 0.2, 0.1)  # 棕色
-	handle_material.roughness = 0.8
-
-	var handle = MeshInstance3D.new()
-	handle.name = "Handle"
-	handle.mesh = handle_mesh
-	handle.material_override = handle_material
-	handle.position = Vector3(0, 0.75, 0)  # 向上偏移使Pivot位于底部
-	pivot.add_child(handle)
-
-	# 创建拍面 - 扁平圆柱体
-	var face_mesh = CylinderMesh.new()
-	face_mesh.top_radius = 1.0
-	face_mesh.bottom_radius = 1.0
-	face_mesh.height = 0.1
-
-	var face_material = StandardMaterial3D.new()
-	face_material.albedo_color = Color(0.8, 0.1, 0.1)  # 红色橡胶
-	face_material.roughness = 0.4
-	face_material.metallic = 0.1
-
-	var face = MeshInstance3D.new()
-	face.name = "Face"
-	face.mesh = face_mesh
-	face.material_override = face_material
-	face.position = Vector3(0, 2.0, 0)  # 手柄上方
-	pivot.add_child(face)
-
-	# 创建拍面边缘（可选，增加视觉效果）
-	var rim_mesh = CylinderMesh.new()
-	rim_mesh.top_radius = 1.02
-	rim_mesh.bottom_radius = 1.02
-	rim_mesh.height = 0.12
-
-	var rim_material = StandardMaterial3D.new()
-	rim_material.albedo_color = Color(0.2, 0.2, 0.2)  # 深色边缘
-
-	var rim = MeshInstance3D.new()
-	rim.name = "Rim"
-	rim.mesh = rim_mesh
-	rim.material_override = rim_material
-	rim.position = Vector3(0, 2.0, 0)
-	pivot.add_child(rim)
-
-	# 创建拖尾发射器
-	var trail_emitter = GPUParticles3D.new()
-	trail_emitter.name = "TrailEmitter"
-	trail_emitter.position = Vector3(0, 2.8, 0)  # 拍头位置
-	trail_emitter.emitting = true
-	trail_emitter.amount = 100
-	trail_emitter.lifetime = 0.5
-
-	# 创建粒子材质
-	var particle_material = ParticleProcessMaterial.new()
-	particle_material.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_POINT
-	particle_material.direction = Vector3(0, 0, 0)
-	particle_material.spread = 0.0
-	particle_material.initial_velocity_min = 0.0
-	particle_material.initial_velocity_max = 0.0
-	particle_material.scale_min = 0.1
-	particle_material.scale_max = 0.3
-	particle_material.color = Color(0.8, 0.2, 0.2, 0.6)
-	trail_emitter.process_material = particle_material
-
-	# 创建粒子网格
-	var particle_mesh = SphereMesh.new()
-	particle_mesh.radius = 0.05
-	particle_mesh.height = 0.1
-	trail_emitter.draw_pass_1 = particle_mesh
-
-	pivot.add_child(trail_emitter)
-
-func update_paddle_visualization(delta: float):
-	if paddle_model == null or paddle_pivot == null:
+# ===== 程序化生成手机模型 =====
+func create_phone_model():
+	"""创建手机模型并添加到场景"""
+	if phone_model != null:
 		return
 
-	# 1. 姿态：直接应用接收到的四元数到模型
-	# 将Unity坐标系的四元数转换为Godot坐标系
-	# Unity:左手坐标系 Y-up, Godot:右手坐标系 Y-up (需要转换)
-	var godot_rotation = convert_quaternion_to_godot(current_rotation)
-	paddle_pivot.quaternion = godot_rotation
+	# 1. 创建根节点
+	phone_model = Node3D.new()
+	phone_model.name = "PhoneModel"
+	add_child(phone_model)
+
+	# 2. 创建旋转中心点 (Pivot)
+	phone_pivot = Node3D.new()
+	phone_pivot.name = "Pivot"
+	phone_model.add_child(phone_pivot)
+
+	# 3. 创建机身 (黑色长方体)
+	var body_mesh = BoxMesh.new()
+	body_mesh.size = Vector3(0.7, 1.5, 0.08)
+
+	var body_material = StandardMaterial3D.new()
+	body_material.albedo_color = Color(0, 0, 0, 1) # 黑色
+	body_material.roughness = 0.5
+
+	var body_instance = MeshInstance3D.new()
+	body_instance.name = "Body"
+	body_instance.mesh = body_mesh
+	body_instance.material_override = body_material
+	phone_pivot.add_child(body_instance)
+
+	# 4. 创建屏幕 (正面平面)
+	var screen_mesh = BoxMesh.new()
+	screen_mesh.size = Vector3(0.65, 1.3, 0.001) # 略小于机身，薄一点
+
+	var screen_material = StandardMaterial3D.new()
+	screen_material.albedo_color = Color(0.1, 0.1, 0.4, 1) # 初始冷色调
+	screen_material.emission_enabled = true
+	screen_material.emission = Color(0.1, 0.1, 0.4, 1)
+	screen_material.emission_energy_multiplier = 0.5 # 微弱发光
+
+	phone_screen_mesh = MeshInstance3D.new()
+	phone_screen_mesh.name = "Screen"
+	phone_screen_mesh.mesh = screen_mesh
+	phone_screen_mesh.material_override = screen_material
+	phone_screen_mesh.position = Vector3(0, 0, 0.041) # 稍微突出于机身 (0.08/2 + small offset)
+	phone_pivot.add_child(phone_screen_mesh)
+
+	# 5. 创建方向标记 (额头白色几何体)
+	var marker_mesh = CylinderMesh.new()
+	marker_mesh.top_radius = 0.02
+	marker_mesh.bottom_radius = 0.02
+	marker_mesh.height = 0.1
+
+	var marker_material = StandardMaterial3D.new()
+	marker_material.albedo_color = Color(1, 1, 1, 1) # 白色
+	marker_material.emission_enabled = true
+	marker_material.emission = Color(1, 1, 1, 1)
+
+	var marker_instance = MeshInstance3D.new()
+	marker_instance.name = "DirectionMarker"
+	marker_instance.mesh = marker_mesh
+	marker_instance.material_override = marker_material
+	# 放置在屏幕上方，额头位置
+	# 旋转90度横放
+	marker_instance.transform = Transform3D(Basis(Vector3.FORWARD, PI/2))
+	marker_instance.position = Vector3(0, 0.6, 0.041)
+	phone_pivot.add_child(marker_instance)
+
+func update_phone_visualization(delta: float):
+	if phone_model == null or phone_pivot == null:
+		return
+
+	# 1. 姿态：应用校准后的四元数
+	var raw_rotation = convert_quaternion_to_godot(current_rotation)
+	# 应用校准偏移： offset * raw
+	phone_pivot.quaternion = calibration_offset * raw_rotation
 
 	# 2. 位置：弹性回中算法
-	_update_paddle_position(delta)
+	_update_phone_position(delta)
 
-	# 3. 更新拖尾效果
-	_update_trail_effect()
+	# 3. 屏幕动能反馈
+	_update_screen_feedback()
 
-	# 4. 更新调试3D标签
+	# 4. 更新轨迹线 (可选，如果需要保留调试)
+	_update_trajectory_line()
+
+	# 5. 更新调试3D标签
 	if debug_label_3d:
 		var accel_mag = user_accel_data.length()
 		debug_label_3d.text = "Accel: %.2f" % accel_mag
-		debug_label_3d.position = paddle_position + Vector3(0, 3.5, 0)
+		debug_label_3d.position = paddle_position + Vector3(0, 2.0, 0)
 
-	# 5. 更新光剑效果
-	_update_lightsaber_effect()
-
-func _update_lightsaber_effect():
-	"""更新光剑效果：根据加速度大小改变颜色和长度"""
-	if paddle_pivot == null:
+func _update_screen_feedback():
+	"""屏幕动能反馈：根据加速度大小改变颜色和发光强度"""
+	if phone_screen_mesh == null:
 		return
 
-	var lightsaber = paddle_pivot.get_node_or_null("Lightsaber")
-	var lightsaber_glow = paddle_pivot.get_node_or_null("LightsaberGlow")
-	if lightsaber == null or lightsaber_glow == null:
+	var material = phone_screen_mesh.material_override as StandardMaterial3D
+	if material == null:
 		return
 
-	# 计算加速度大小
 	var accel_mag = user_accel_data.length()
 
-	# 根据加速度大小决定颜色
-	# 低加速度: 绿色 -> 中加速度: 黄色 -> 高加速度: 红色
-	var color: Color
-	if accel_mag < 2.0:
-		# 绿色到黄色的渐变
-		var t = clamp(accel_mag / 2.0, 0.0, 1.0)
-		color = Color(0, 1, 0, 1).lerp(Color(1, 1, 0, 1), t)
-	elif accel_mag < 5.0:
-		# 黄色到橙色的渐变
-		var t = clamp((accel_mag - 2.0) / 3.0, 0.0, 1.0)
-		color = Color(1, 1, 0, 1).lerp(Color(1, 0.5, 0, 1), t)
+	# 静止/低速: 深蓝 (Cool)
+	# 高速: 亮黄/红 (Warm)
+
+	var color_idle = Color(0.1, 0.1, 0.6, 1) # 深蓝
+	var color_mid = Color(1.0, 0.8, 0.2, 1) # 亮黄
+	var color_max = Color(1.0, 0.1, 0.1, 1) # 红
+
+	var target_color: Color
+	var energy: float
+
+	if accel_mag < 3.0:
+		var t = clamp(accel_mag / 3.0, 0.0, 1.0)
+		target_color = color_idle.lerp(color_mid, t)
+		energy = lerp(0.5, 2.0, t)
 	else:
-		# 橙色到红色的渐变
-		var t = clamp((accel_mag - 5.0) / 5.0, 0.0, 1.0)
-		color = Color(1, 0.5, 0, 1).lerp(Color(1, 0, 0, 1), t)
+		var t = clamp((accel_mag - 3.0) / 5.0, 0.0, 1.0)
+		target_color = color_mid.lerp(color_max, t)
+		energy = lerp(2.0, 5.0, t)
 
-	# 更新光剑材质颜色
-	var material = lightsaber.material_override as StandardMaterial3D
-	if material:
-		material.albedo_color = color
-		material.emission = color
-
-	var glow_material = lightsaber_glow.material_override as StandardMaterial3D
-	if glow_material:
-		glow_material.albedo_color = Color(color.r, color.g, color.b, 0.3)
-		glow_material.emission = color
-
-	# 根据加速度方向更新光剑朝向和长度
-	# 光剑指向加速度方向，长度表示大小
-	if accel_mag > 0.1:
-		var accel_dir = user_accel_data.normalized()
-		var target_length = clamp(accel_mag * 0.3, 0.5, 3.0)
-
-		# 计算旋转使光剑指向加速度方向
-		var up = Vector3.UP
-		var rotation_basis = Basis()
-		rotation_basis.y = accel_dir
-		rotation_basis.x = up.cross(accel_dir).normalized()
-		if rotation_basis.x.length() < 0.001:
-			rotation_basis.x = Vector3.RIGHT
-		rotation_basis.z = rotation_basis.x.cross(rotation_basis.y).normalized()
-
-		lightsaber.transform = Transform3D(rotation_basis)
-		lightsaber_glow.transform = Transform3D(rotation_basis)
-
-		# 更新长度（缩放Y轴）
-		lightsaber.scale = Vector3(1, target_length, 1)
-		lightsaber_glow.scale = Vector3(1, target_length, 1)
-
-		# 位置偏移（使光剑从拍头开始向外延伸）
-		var offset = accel_dir * target_length * 0.5
-		lightsaber.position = Vector3(0, 3.5, 0) + offset
-		lightsaber_glow.position = Vector3(0, 3.5, 0) + offset
-	else:
-		# 低加速度时缩小光剑
-		lightsaber.scale = Vector3(0.1, 0.1, 0.1)
-		lightsaber_glow.scale = Vector3(0.1, 0.1, 0.1)
+	material.albedo_color = target_color
+	material.emission = target_color
+	material.emission_energy_multiplier = energy
 
 func convert_quaternion_to_godot(q: Quaternion) -> Quaternion:
-	"""将Android坐标系的四元数转换为Godot坐标系
-	基于校准数据分析:
-	- 手机平放时 raw≈(0.5, 0.5, 0.5, 0.5)
-	- 竖直握持时 Y≈1.0（绕Y轴旋转）
-
-	期望映射:
-	- 手机屏幕向上(Z+) -> Godot Y+(上)
-	- 手机底部(Y-) -> Godot Z+(朝向玩家)
-	- 手机顶部(Y+) -> Godot Z-(朝向屏幕)
-	- 手机X右 -> Godot X右
-
-	坐标转换:
-	- Android X -> Godot X
-	- Android Y -> Godot -Z
-	- Android Z -> Godot Y
-
-	四元数转换: (x, y, z, w) -> (x, -z, y, w)
-	"""
-	return Quaternion(q.x, -q.z, q.y, q.w).normalized()
+	"""直连映射：(x, y, z, w) -> (x, y, z, w)"""
+	return q
 
 func convert_vector_to_godot(v: Vector3) -> Vector3:
-	"""将Android坐标系的向量转换为Godot坐标系
-	坐标映射: (x, y, z) -> (x, -z, y)
-	"""
-	return Vector3(v.x, -v.z, v.y)
+	"""直连映射：(x, y, z) -> (x, y, z)"""
+	return v
 
-func _update_paddle_position(delta: float):
+func _update_phone_position(delta: float):
 	"""弹性回中位置更新算法"""
-	# 转换加速度到Godot坐标系
 	var godot_accel = convert_vector_to_godot(user_accel_data)
-
-	# 速度积分
 	velocity += godot_accel * delta
-
-	# 高阻力衰减
 	velocity = velocity.lerp(Vector3.ZERO, friction * delta)
-
-	# 位置积分
 	paddle_position += velocity * delta
-
-	# 弹性回中
 	paddle_position = paddle_position.lerp(origin_position, return_speed * delta)
 
-	# 限制最大位移范围
 	paddle_position.x = clamp(paddle_position.x, -max_displacement, max_displacement)
-	paddle_position.y = clamp(paddle_position.y, 0.0, max_displacement)
+	paddle_position.y = clamp(paddle_position.y, -max_displacement, max_displacement) # Allow Y movement
 	paddle_position.z = clamp(paddle_position.z, -max_displacement, max_displacement)
 
-	# 应用到模型
-	paddle_model.position = paddle_position
+	phone_model.position = paddle_position
 
-func _update_trail_effect():
-	"""根据移动速度更新拖尾效果"""
-	if paddle_pivot == null:
-		return
-
-	var trail_emitter = paddle_pivot.get_node_or_null("TrailEmitter")
-	if trail_emitter == null:
-		return
-
-	var speed = velocity.length()
-	# 根据速度调整发射率
-	trail_emitter.amount = int(clamp(speed * 20, 10, 100))
-
-	# 记录轨迹点
-	var trail_pos = paddle_position + Vector3(0, 2.8, 0)
-	if trajectory_points.is_empty() or trail_pos.distance_to(trajectory_points[-1]) > 0.05:
-		add_trajectory_point(trail_pos)
+func _update_trajectory_line():
+	"""更新简单的线条轨迹"""
+	var pos = paddle_position
+	if trajectory_points.is_empty() or pos.distance_to(trajectory_points[-1]) > 0.05:
+		add_trajectory_point(pos)
 
 func add_trajectory_point(pos: Vector3):
 	trajectory_points.append(pos)
@@ -618,7 +497,6 @@ func _input(event):
 		get_tree().quit()
 
 	if event is InputEventKey and event.pressed:
-		# 校准模式下的确认键
 		if is_calibrating and event.keycode == KEY_ENTER:
 			record_calibration_sample()
 			return
@@ -640,15 +518,17 @@ func _input(event):
 				start_calibration()
 
 func reset_view():
+	# 姿态归零逻辑：记录当前的逆作为offset
+	calibration_offset = current_rotation.inverse()
+
+	# 位置和速度归零
 	paddle_position = Vector3.ZERO
 	velocity = Vector3.ZERO
-	current_rotation = Quaternion.IDENTITY
-	if paddle_model:
-		paddle_model.position = paddle_position
-	if paddle_pivot:
-		paddle_pivot.rotation = Vector3.ZERO
+	if phone_model:
+		phone_model.position = paddle_position
+
 	clear_trajectory()
-	print("[视图] 已重置")
+	print("[视图] 已重置 (校准偏移已更新)")
 
 func clear_trajectory():
 	trajectory_points.clear()
@@ -659,8 +539,7 @@ func clear_trajectory():
 func _on_timer_timeout():
 	pass
 
-# ===== 录制功能 =====
-
+# ===== 录制/回放/文件传输相关函数保留原样 =====
 func start_recording():
 	if is_recording:
 		return
@@ -707,8 +586,6 @@ func save_recorded_data():
 	else:
 		print("[录制] 保存失败")
 		status_label.text = "保存失败"
-
-# ===== 回放数据接收（来自手机）=====
 
 func start_receiving_playback(data: Dictionary):
 	is_receiving_playback = true
@@ -759,8 +636,6 @@ func save_playback_buffer_to_file():
 		status_label.text = "回放数据已保存: " + filename.get_file()
 	else:
 		print("[回放保存] 保存失败")
-
-# ===== 本地回放功能 =====
 
 func load_local_recording():
 	# 查找最新的录制文件
@@ -863,13 +738,10 @@ func process_local_playback_frame():
 	# 兼容旧格式
 	if frame.has("accel"):
 		var a = frame["accel"]
-		# 旧格式没有user_accel，使用accel代替
 		user_accel_data = Vector3(a["x"], a["y"], a["z"])
 
 	local_playback_index += 1
 	status_label.text = "本地回放: %d/%d" % [local_playback_index, local_playback_frames.size()]
-
-# ===== 文件传输接收功能 =====
 
 func handle_file_transfer_start(data: Dictionary):
 	file_transfer_in_progress = true
@@ -896,7 +768,6 @@ func handle_file_chunk(data: Dictionary):
 	var chunk_data = data.get("data", "")
 	var filename = data.get("filename", "unknown")
 
-	# 打印每个分片的接收日志（仅打印前5个和每10个）
 	if chunk_index < 5 or chunk_index % 10 == 0:
 		print("[文件接收] 收到分片 #", chunk_index, " 大小: ", chunk_data.length(), " 字节")
 
@@ -914,7 +785,6 @@ func handle_file_transfer_end(data: Dictionary):
 
 	file_transfer_in_progress = false
 
-	# 统计丢失的分片
 	var missing_chunks: Array[int] = []
 	for i in range(file_transfer_total_chunks):
 		if not file_transfer_chunks.has(i):
@@ -933,7 +803,6 @@ func handle_file_transfer_end(data: Dictionary):
 		print("[文件接收] 丢失分片编号: ", missing_chunks)
 	print("[文件接收] ============================")
 
-	# 即使丢失分片也尝试重组文件
 	file_transfer_buffer = ""
 	for i in range(file_transfer_total_chunks):
 		if file_transfer_chunks.has(i):
@@ -941,11 +810,9 @@ func handle_file_transfer_end(data: Dictionary):
 
 	print("[文件接收] 文件内容重组完成，大小: ", file_transfer_buffer.length(), " 字节")
 
-	# 保存文件到项目目录下的 received_files 文件夹
 	var save_dir = "res://received_files/"
 	var save_filename = save_dir + "received_" + file_transfer_filename.get_file()
 
-	# 确保目录存在
 	var dir = DirAccess.open("res://")
 	if dir and not dir.dir_exists("received_files"):
 		dir.make_dir("received_files")
@@ -961,7 +828,6 @@ func handle_file_transfer_end(data: Dictionary):
 		status_label.text = "保存文件失败"
 		return
 
-	# 保存传输记录
 	var transfer_record = {
 		"filename": file_transfer_filename,
 		"saved_path": save_filename,
@@ -1029,10 +895,8 @@ func list_received_files():
 	files.sort()
 	files.reverse()
 
-	# 更新UI显示
 	update_file_list_ui(files)
 
-	# 打印到控制台
 	for i in range(files.size()):
 		var f = files[i]
 		var file_obj = FileAccess.open("res://received_files/" + f, FileAccess.READ)
@@ -1054,7 +918,7 @@ func update_file_list_ui(files: Array[String]):
 		return
 
 	var text = "接收文件列表:\n"
-	for i in range(min(files.size(), 5)):  # 最多显示5个
+	for i in range(min(files.size(), 5)):
 		var f = files[i]
 		var file_obj = FileAccess.open("res://received_files/" + f, FileAccess.READ)
 		var size_str = "未知"
@@ -1062,7 +926,6 @@ func update_file_list_ui(files: Array[String]):
 			var content = file_obj.get_as_text()
 			size_str = str(content.length() / 1024.0).substr(0, 4) + "KB"
 			file_obj.close()
-		# 简化文件名显示
 		var display_name = f.replace("received_record_", "").replace(".json", "")
 		text += "[%d] %s (%s)\n" % [i + 1, display_name, size_str]
 
@@ -1124,7 +987,6 @@ func load_and_play_file(filepath: String):
 	elif data.has("data"):
 		frames_array = data["data"]
 
-	# 转换为正确类型
 	for frame in frames_array:
 		if typeof(frame) == TYPE_DICTIONARY:
 			local_playback_frames.append(frame)
@@ -1134,8 +996,6 @@ func load_and_play_file(filepath: String):
 		return
 
 	print("[自动回放] 加载完成，共 ", local_playback_frames.size(), " 帧")
-
-	# 自动开始回放
 	start_local_playback()
 
 # ===== 校准功能 =====
@@ -1145,7 +1005,6 @@ func start_calibration():
 	is_calibrating = true
 	calibration_step = 0
 	calibration_data.clear()
-	use_calibration_matrix = false
 
 	print("\n========== 开始姿态校准 ==========")
 	show_calibration_dialog()
@@ -1162,11 +1021,9 @@ func show_calibration_dialog():
 	print("\n[校准步骤 %d/%d] %s" % [calibration_step + 1, calibration_messages.size(), pose_name])
 	print("说明: %s" % message)
 
-	# 更新UI显示
 	status_label.text = "校准步骤 %d/%d: %s\n%s" % [calibration_step + 1, calibration_messages.size(), pose_name, message]
 	status_label.modulate = Color.YELLOW
 
-	# 更新按钮文本为"确认"
 	if calibrate_button:
 		calibrate_button.text = "确认当前姿态 (K)"
 
@@ -1175,7 +1032,6 @@ func record_calibration_sample():
 	if not is_calibrating:
 		return
 
-	# 记录当前的原始四元数和转换后的四元数
 	var sample = {
 		"step": calibration_step,
 		"pose_name": calibration_poses[calibration_step],
@@ -1198,27 +1054,23 @@ func record_calibration_sample():
 		current_rotation.x, current_rotation.y, current_rotation.z, current_rotation.w
 	])
 
-	# 进入下一步
 	calibration_step += 1
 	show_calibration_dialog()
 
 func finish_calibration():
-	"""完成校准并计算转换矩阵"""
+	"""完成校准"""
 	is_calibrating = false
 
 	print("\n========== 校准完成 ==========")
 	print("记录了 %d 个姿态样本" % calibration_data.size())
 
-	# 保存校准数据到文件
 	save_calibration_data()
 
-	# 尝试计算校准矩阵
-	calculate_calibration_matrix()
+	# 这里不再计算复杂的矩阵，因为使用了直连映射 + 归零校准
 
 	status_label.text = "校准完成！数据已保存到 calibration_data.json"
 	status_label.modulate = Color.GREEN
 
-	# 恢复按钮文本
 	if calibrate_button:
 		calibrate_button.text = "校准姿态 (K)"
 
@@ -1243,7 +1095,6 @@ func save_calibration_data():
 		file.close()
 		print("[校准保存] 数据已保存到: %s" % filename)
 
-	# 同时保存一个固定名称的文件用于调试
 	var debug_file = FileAccess.open("user://calibration_data.json", FileAccess.WRITE)
 	if debug_file:
 		var debug_output = {
@@ -1256,27 +1107,3 @@ func save_calibration_data():
 		debug_file.store_string(JSON.stringify(debug_output, "\t"))
 		debug_file.close()
 		print("[校准保存] 调试数据已保存到: user://calibration_data.json")
-
-func calculate_calibration_matrix():
-	"""基于校准数据计算转换矩阵"""
-	print("\n[校准计算] 分析校准数据...")
-
-	if calibration_data.size() < 2:
-		print("[校准计算] 样本不足，无法计算")
-		return
-
-	# 打印每个样本的数据用于分析
-	for sample in calibration_data:
-		var q = sample["raw_quaternion"]
-		print("[校准样本] %s: raw=(%.4f, %.4f, %.4f, %.4f)" % [
-			sample["pose_name"], q["x"], q["y"], q["z"], q["w"]
-		])
-
-	print("\n[校准计算] 基于样本数据，建议使用以下转换:")
-	print("  convert_quaternion_to_godot(q):")
-	print("    return Quaternion(q.x, q.y, q.z, q.w).normalized()")
-	print("\n  或者尝试其他分量排列:")
-	print("    Quaternion(q.x, -q.y, q.z, q.w)")
-	print("    Quaternion(q.x, q.z, q.y, q.w)")
-	print("    Quaternion(q.y, q.z, q.x, q.w)")
-	print("    ...等")
