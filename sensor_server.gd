@@ -17,7 +17,7 @@ var current_rotation := Quaternion.IDENTITY  # 融合后的姿态
 
 # 运动计算 - 弹性回中算法
 var velocity := Vector3.ZERO
-var paddle_position := Vector3.ZERO
+var phone_position := Vector3.ZERO
 
 # 导出变量 - 可调整的运动参数
 @export var friction: float = 5.0  # 速度衰减系数
@@ -60,9 +60,13 @@ var file_transfer_buffer := ""
 @onready var velocity_label: Label = %VelocityLabel
 @onready var position_label: Label = %PositionLabel
 @onready var trajectory_container: Node3D = %TrajectoryContainer
-@onready var paddle_model: Node3D = $PaddleModel
-@onready var paddle_pivot: Node3D = $PaddleModel/Pivot
 @onready var debug_label_3d: Label3D = %DebugLabel3D
+
+# 手机模型引用
+var phone_model: Node3D
+var phone_pivot: Node3D
+var phone_screen_mesh: MeshInstance3D
+var calibration_offset := Quaternion.IDENTITY
 
 # 按钮引用
 @onready var list_files_button: Button = %ListFilesButton
@@ -103,7 +107,7 @@ func _ready():
 	start_server()
 	create_ground_grid()
 	connect_buttons()
-	create_paddle_model()
+	create_phone_model()
 	print("[控制] 按键说明: R=重置视角 | C=清除轨迹 | L=加载最近文件 | O=查看接收文件 | P=回放 | S=保存数据 | ESC=退出")
 	print("[提示] 接收的文件保存在 received_files/ 文件夹，也可以使用右侧按钮操作")
 
@@ -153,7 +157,7 @@ func _process(delta):
 		if local_playback_timer >= (1.0 / PLAYBACK_FPS):
 			local_playback_timer = 0.0
 			process_local_playback_frame()
-		update_paddle_visualization(delta)
+		update_phone_visualization(delta)
 		update_ui()
 		return
 
@@ -179,8 +183,8 @@ func _process(delta):
 					if frame_count % 60 == 0:
 						print("[接收] JSON消息: %s" % data_str.substr(0, 100))
 
-	# 更新乒乓球拍3D模型
-	update_paddle_visualization(delta)
+	# 更新手机3D模型
+	update_phone_visualization(delta)
 
 	# 更新UI
 	update_ui()
@@ -289,224 +293,132 @@ func parse_control_message(json_str: String):
 				handle_file_transfer_end(data)
 				return
 
-func create_paddle_model():
-	"""程序化创建乒乓球拍模型（如果场景中没有）"""
-	if paddle_model != null:
-		return  # 场景中已经存在
 
-	# 创建球拍根节点
-	paddle_model = Node3D.new()
-	paddle_model.name = "PaddleModel"
-	add_child(paddle_model)
-
-	# 创建旋转中心点（Pivot）
-	var pivot = Node3D.new()
-	pivot.name = "Pivot"
-	paddle_model.add_child(pivot)
-
-	# 创建手柄 - 圆柱体
-	var handle_mesh = CylinderMesh.new()
-	handle_mesh.top_radius = 0.08
-	handle_mesh.bottom_radius = 0.08
-	handle_mesh.height = 1.5
-
-	var handle_material = StandardMaterial3D.new()
-	handle_material.albedo_color = Color(0.4, 0.2, 0.1)  # 棕色
-	handle_material.roughness = 0.8
-
-	var handle = MeshInstance3D.new()
-	handle.name = "Handle"
-	handle.mesh = handle_mesh
-	handle.material_override = handle_material
-	handle.position = Vector3(0, 0.75, 0)  # 向上偏移使Pivot位于底部
-	pivot.add_child(handle)
-
-	# 创建拍面 - 扁平圆柱体
-	var face_mesh = CylinderMesh.new()
-	face_mesh.top_radius = 1.0
-	face_mesh.bottom_radius = 1.0
-	face_mesh.height = 0.1
-
-	var face_material = StandardMaterial3D.new()
-	face_material.albedo_color = Color(0.8, 0.1, 0.1)  # 红色橡胶
-	face_material.roughness = 0.4
-	face_material.metallic = 0.1
-
-	var face = MeshInstance3D.new()
-	face.name = "Face"
-	face.mesh = face_mesh
-	face.material_override = face_material
-	face.position = Vector3(0, 2.0, 0)  # 手柄上方
-	pivot.add_child(face)
-
-	# 创建拍面边缘（可选，增加视觉效果）
-	var rim_mesh = CylinderMesh.new()
-	rim_mesh.top_radius = 1.02
-	rim_mesh.bottom_radius = 1.02
-	rim_mesh.height = 0.12
-
-	var rim_material = StandardMaterial3D.new()
-	rim_material.albedo_color = Color(0.2, 0.2, 0.2)  # 深色边缘
-
-	var rim = MeshInstance3D.new()
-	rim.name = "Rim"
-	rim.mesh = rim_mesh
-	rim.material_override = rim_material
-	rim.position = Vector3(0, 2.0, 0)
-	pivot.add_child(rim)
-
-	# 创建拖尾发射器
-	var trail_emitter = GPUParticles3D.new()
-	trail_emitter.name = "TrailEmitter"
-	trail_emitter.position = Vector3(0, 2.8, 0)  # 拍头位置
-	trail_emitter.emitting = true
-	trail_emitter.amount = 100
-	trail_emitter.lifetime = 0.5
-
-	# 创建粒子材质
-	var particle_material = ParticleProcessMaterial.new()
-	particle_material.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_POINT
-	particle_material.direction = Vector3(0, 0, 0)
-	particle_material.spread = 0.0
-	particle_material.initial_velocity_min = 0.0
-	particle_material.initial_velocity_max = 0.0
-	particle_material.scale_min = 0.1
-	particle_material.scale_max = 0.3
-	particle_material.color = Color(0.8, 0.2, 0.2, 0.6)
-	trail_emitter.process_material = particle_material
-
-	# 创建粒子网格
-	var particle_mesh = SphereMesh.new()
-	particle_mesh.radius = 0.05
-	particle_mesh.height = 0.1
-	trail_emitter.draw_pass_1 = particle_mesh
-
-	pivot.add_child(trail_emitter)
-
-func update_paddle_visualization(delta: float):
-	if paddle_model == null or paddle_pivot == null:
+func create_phone_model():
+	"""程序化创建手机模型"""
+	if phone_model != null:
 		return
 
-	# 1. 姿态：直接应用接收到的四元数到模型
-	# 将Unity坐标系的四元数转换为Godot坐标系
-	# Unity:左手坐标系 Y-up, Godot:右手坐标系 Y-up (需要转换)
-	var godot_rotation = convert_quaternion_to_godot(current_rotation)
-	paddle_pivot.quaternion = godot_rotation
+	# 1. 根节点
+	phone_model = Node3D.new()
+	phone_model.name = "PhoneModel"
+	add_child(phone_model)
+
+	# 2. 旋转中心 (Pivot)
+	phone_pivot = Node3D.new()
+	phone_pivot.name = "Pivot"
+	phone_model.add_child(phone_pivot)
+
+	# 3. 机身 (Body) - 黑色长方体
+	var body_mesh = BoxMesh.new()
+	body_mesh.size = Vector3(0.7, 1.5, 0.08)
+
+	var body_material = StandardMaterial3D.new()
+	body_material.albedo_color = Color(0.1, 0.1, 0.1) # Black
+	body_material.roughness = 0.5
+
+	var body = MeshInstance3D.new()
+	body.name = "Body"
+	body.mesh = body_mesh
+	body.material_override = body_material
+	phone_pivot.add_child(body)
+
+	# 4. 屏幕 (Screen) - 正面
+	var screen_mesh = BoxMesh.new()
+	screen_mesh.size = Vector3(0.6, 1.4, 0.002) # Slightly thinner than body, sits on top
+
+	var screen_material = StandardMaterial3D.new()
+	screen_material.albedo_color = Color(0.0, 0.1, 0.3) # Dark Blue
+	screen_material.emission_enabled = true
+	screen_material.emission = Color(0.0, 0.2, 0.5)
+	screen_material.emission_energy_multiplier = 0.5
+
+	phone_screen_mesh = MeshInstance3D.new()
+	phone_screen_mesh.name = "Screen"
+	phone_screen_mesh.mesh = screen_mesh
+	phone_screen_mesh.material_override = screen_material
+	phone_screen_mesh.position = Vector3(0, 0, 0.041) # On top of body (0.08/2 + small offset)
+	phone_pivot.add_child(phone_screen_mesh)
+
+	# 5. 方向标记 (Direction Marker) - 额头小白点
+	var marker_mesh = BoxMesh.new()
+	marker_mesh.size = Vector3(0.1, 0.02, 0.005)
+
+	var marker_material = StandardMaterial3D.new()
+	marker_material.albedo_color = Color(1, 1, 1) # White
+	marker_material.emission_enabled = true
+	marker_material.emission = Color(1, 1, 1)
+
+	var marker = MeshInstance3D.new()
+	marker.name = "DirectionMarker"
+	marker.mesh = marker_mesh
+	marker.material_override = marker_material
+	marker.position = Vector3(0, 0.65, 0.042) # Near top
+	phone_pivot.add_child(marker)
+
+func _update_screen_feedback():
+	"""根据加速度更新屏幕颜色反馈"""
+	if phone_screen_mesh == null:
+		return
+
+	var material = phone_screen_mesh.material_override as StandardMaterial3D
+	if material == null:
+		return
+
+	var accel_mag = user_accel_data.length()
+
+	# Map accel to color (0-10 m/s^2 range roughly)
+	# Low: Blue (Cool) -> High: Red/Yellow (Warm)
+	var t = clamp(accel_mag / 8.0, 0.0, 1.0)
+
+	var color_idle = Color(0.0, 0.2, 0.6) # Deep Blue
+	var color_active = Color(1.0, 0.3, 0.1) # Orange/Red
+
+	var current_color = color_idle.lerp(color_active, t)
+
+	material.albedo_color = current_color
+	material.emission = current_color
+	material.emission_energy_multiplier = 0.5 + (t * 2.0) # Brighter when moving
+
+
+func update_phone_visualization(delta: float):
+	if phone_model == null or phone_pivot == null:
+		return
+
+	# 1. 姿态：应用校准后的旋转
+	var raw_rotation = convert_quaternion_to_godot(current_rotation)
+	var final_rotation = calibration_offset * raw_rotation
+	phone_pivot.quaternion = final_rotation
 
 	# 2. 位置：弹性回中算法
-	_update_paddle_position(delta)
+	_update_phone_position(delta)
 
-	# 3. 更新拖尾效果
-	_update_trail_effect()
+	# 3. 更新屏幕动能反馈
+	_update_screen_feedback()
+
+	# 更新轨迹
+	add_trajectory_point(phone_position + Vector3(0, 0.75, 0))
 
 	# 4. 更新调试3D标签
 	if debug_label_3d:
 		var accel_mag = user_accel_data.length()
 		debug_label_3d.text = "Accel: %.2f" % accel_mag
-		debug_label_3d.position = paddle_position + Vector3(0, 3.5, 0)
+		debug_label_3d.position = phone_position + Vector3(0, 2.0, 0) # Adjusted height for phone
 
-	# 5. 更新光剑效果
-	_update_lightsaber_effect()
-
-func _update_lightsaber_effect():
-	"""更新光剑效果：根据加速度大小改变颜色和长度"""
-	if paddle_pivot == null:
-		return
-
-	var lightsaber = paddle_pivot.get_node_or_null("Lightsaber")
-	var lightsaber_glow = paddle_pivot.get_node_or_null("LightsaberGlow")
-	if lightsaber == null or lightsaber_glow == null:
-		return
-
-	# 计算加速度大小
-	var accel_mag = user_accel_data.length()
-
-	# 根据加速度大小决定颜色
-	# 低加速度: 绿色 -> 中加速度: 黄色 -> 高加速度: 红色
-	var color: Color
-	if accel_mag < 2.0:
-		# 绿色到黄色的渐变
-		var t = clamp(accel_mag / 2.0, 0.0, 1.0)
-		color = Color(0, 1, 0, 1).lerp(Color(1, 1, 0, 1), t)
-	elif accel_mag < 5.0:
-		# 黄色到橙色的渐变
-		var t = clamp((accel_mag - 2.0) / 3.0, 0.0, 1.0)
-		color = Color(1, 1, 0, 1).lerp(Color(1, 0.5, 0, 1), t)
-	else:
-		# 橙色到红色的渐变
-		var t = clamp((accel_mag - 5.0) / 5.0, 0.0, 1.0)
-		color = Color(1, 0.5, 0, 1).lerp(Color(1, 0, 0, 1), t)
-
-	# 更新光剑材质颜色
-	var material = lightsaber.material_override as StandardMaterial3D
-	if material:
-		material.albedo_color = color
-		material.emission = color
-
-	var glow_material = lightsaber_glow.material_override as StandardMaterial3D
-	if glow_material:
-		glow_material.albedo_color = Color(color.r, color.g, color.b, 0.3)
-		glow_material.emission = color
-
-	# 根据加速度方向更新光剑朝向和长度
-	# 光剑指向加速度方向，长度表示大小
-	if accel_mag > 0.1:
-		var accel_dir = user_accel_data.normalized()
-		var target_length = clamp(accel_mag * 0.3, 0.5, 3.0)
-
-		# 计算旋转使光剑指向加速度方向
-		var up = Vector3.UP
-		var rotation_basis = Basis()
-		rotation_basis.y = accel_dir
-		rotation_basis.x = up.cross(accel_dir).normalized()
-		if rotation_basis.x.length() < 0.001:
-			rotation_basis.x = Vector3.RIGHT
-		rotation_basis.z = rotation_basis.x.cross(rotation_basis.y).normalized()
-
-		lightsaber.transform = Transform3D(rotation_basis)
-		lightsaber_glow.transform = Transform3D(rotation_basis)
-
-		# 更新长度（缩放Y轴）
-		lightsaber.scale = Vector3(1, target_length, 1)
-		lightsaber_glow.scale = Vector3(1, target_length, 1)
-
-		# 位置偏移（使光剑从拍头开始向外延伸）
-		var offset = accel_dir * target_length * 0.5
-		lightsaber.position = Vector3(0, 3.5, 0) + offset
-		lightsaber_glow.position = Vector3(0, 3.5, 0) + offset
-	else:
-		# 低加速度时缩小光剑
-		lightsaber.scale = Vector3(0.1, 0.1, 0.1)
-		lightsaber_glow.scale = Vector3(0.1, 0.1, 0.1)
 
 func convert_quaternion_to_godot(q: Quaternion) -> Quaternion:
 	"""将Android坐标系的四元数转换为Godot坐标系
-	基于校准数据分析:
-	- 手机平放时 raw≈(0.5, 0.5, 0.5, 0.5)
-	- 竖直握持时 Y≈1.0（绕Y轴旋转）
-
-	期望映射:
-	- 手机屏幕向上(Z+) -> Godot Y+(上)
-	- 手机底部(Y-) -> Godot Z+(朝向玩家)
-	- 手机顶部(Y+) -> Godot Z-(朝向屏幕)
-	- 手机X右 -> Godot X右
-
-	坐标转换:
-	- Android X -> Godot X
-	- Android Y -> Godot -Z
-	- Android Z -> Godot Y
-
-	四元数转换: (x, y, z, w) -> (x, -z, y, w)
+	直连映射: (x, y, z, w) -> (x, y, z, w)
 	"""
-	return Quaternion(q.x, -q.z, q.y, q.w).normalized()
+	return Quaternion(q.x, q.y, q.z, q.w).normalized()
 
 func convert_vector_to_godot(v: Vector3) -> Vector3:
 	"""将Android坐标系的向量转换为Godot坐标系
-	坐标映射: (x, y, z) -> (x, -z, y)
+	直连映射: (x, y, z) -> (x, y, z)
 	"""
-	return Vector3(v.x, -v.z, v.y)
+	return Vector3(v.x, v.y, v.z)
 
-func _update_paddle_position(delta: float):
+func _update_phone_position(delta: float):
 	"""弹性回中位置更新算法"""
 	# 转换加速度到Godot坐标系
 	var godot_accel = convert_vector_to_godot(user_accel_data)
@@ -518,36 +430,19 @@ func _update_paddle_position(delta: float):
 	velocity = velocity.lerp(Vector3.ZERO, friction * delta)
 
 	# 位置积分
-	paddle_position += velocity * delta
+	phone_position += velocity * delta
 
 	# 弹性回中
-	paddle_position = paddle_position.lerp(origin_position, return_speed * delta)
+	phone_position = phone_position.lerp(origin_position, return_speed * delta)
 
 	# 限制最大位移范围
-	paddle_position.x = clamp(paddle_position.x, -max_displacement, max_displacement)
-	paddle_position.y = clamp(paddle_position.y, 0.0, max_displacement)
-	paddle_position.z = clamp(paddle_position.z, -max_displacement, max_displacement)
+	phone_position.x = clamp(phone_position.x, -max_displacement, max_displacement)
+	phone_position.y = clamp(phone_position.y, 0.0, max_displacement)
+	phone_position.z = clamp(phone_position.z, -max_displacement, max_displacement)
 
 	# 应用到模型
-	paddle_model.position = paddle_position
-
-func _update_trail_effect():
-	"""根据移动速度更新拖尾效果"""
-	if paddle_pivot == null:
-		return
-
-	var trail_emitter = paddle_pivot.get_node_or_null("TrailEmitter")
-	if trail_emitter == null:
-		return
-
-	var speed = velocity.length()
-	# 根据速度调整发射率
-	trail_emitter.amount = int(clamp(speed * 20, 10, 100))
-
-	# 记录轨迹点
-	var trail_pos = paddle_position + Vector3(0, 2.8, 0)
-	if trajectory_points.is_empty() or trail_pos.distance_to(trajectory_points[-1]) > 0.05:
-		add_trajectory_point(trail_pos)
+	if phone_model:
+		phone_model.position = phone_position
 
 func add_trajectory_point(pos: Vector3):
 	trajectory_points.append(pos)
@@ -611,7 +506,7 @@ func update_ui():
 	accel_label.text = "UserAccel: %.3f (%.3f, %.3f, %.3f)" % [accel_mag, user_accel_data.x, user_accel_data.y, user_accel_data.z]
 	rotation_label.text = "Rotation: (%.3f, %.3f, %.3f, %.3f)" % [current_rotation.x, current_rotation.y, current_rotation.z, current_rotation.w]
 	velocity_label.text = "速度: %.3f m/s" % velocity.length()
-	position_label.text = "位置: X: %.3f Y: %.3f Z: %.3f" % [paddle_position.x, paddle_position.y, paddle_position.z]
+	position_label.text = "位置: X: %.3f Y: %.3f Z: %.3f" % [phone_position.x, phone_position.y, phone_position.z]
 
 func _input(event):
 	if event.is_action_pressed("ui_cancel"):
@@ -640,15 +535,12 @@ func _input(event):
 				start_calibration()
 
 func reset_view():
-	paddle_position = Vector3.ZERO
+	phone_position = Vector3.ZERO
 	velocity = Vector3.ZERO
-	current_rotation = Quaternion.IDENTITY
-	if paddle_model:
-		paddle_model.position = paddle_position
-	if paddle_pivot:
-		paddle_pivot.rotation = Vector3.ZERO
+	# 校准: 将当前姿态设为零点
+	calibration_offset = convert_quaternion_to_godot(current_rotation).inverse()
 	clear_trajectory()
-	print("[视图] 已重置")
+	print("[视图] 已重置 (校准偏移 updated)")
 
 func clear_trajectory():
 	trajectory_points.clear()
