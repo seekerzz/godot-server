@@ -14,3 +14,6 @@ nul
 # OS files
 .DS_Store
 Thumbs.db
+
+# Log files
+*.txt
