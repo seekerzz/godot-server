@@ -81,6 +81,12 @@ var frame_count := 0
 var last_packet_time := 0.0
 
 func _ready():
+	# 移除场景中遗留的PaddleModel
+	var old_paddle = get_node_or_null("PaddleModel")
+	if old_paddle:
+		old_paddle.queue_free()
+		print("[Visual] Deleted old PaddleModel from scene.")
+
 	start_server()
 	create_ground_grid()
 	connect_buttons()
@@ -268,9 +274,9 @@ func create_phone_visuals():
 	phone_visual.name = "PhoneVisual"
 	phone_model.add_child(phone_visual)
 
-	# 1. Phone Body (Dark Gray Metal)
+	# 1. Phone Body (Dark Gray Metal) - 10x larger for visibility
 	var body_mesh = BoxMesh.new()
-	body_mesh.size = Vector3(0.075, 0.15, 0.01) # Approx phone size
+	body_mesh.size = Vector3(0.75, 1.5, 0.1) # Approx phone size x10
 
 	var body_material = StandardMaterial3D.new()
 	body_material.albedo_color = Color(0.2, 0.2, 0.2)
@@ -285,7 +291,7 @@ func create_phone_visuals():
 
 	# 2. Screen (Black Emission, slightly smaller, on Z+ face)
 	var screen_mesh = BoxMesh.new()
-	screen_mesh.size = Vector3(0.07, 0.14, 0.001)
+	screen_mesh.size = Vector3(0.7, 1.4, 0.01) # x10
 
 	var screen_material = StandardMaterial3D.new()
 	screen_material.albedo_color = Color(0, 0, 0)
@@ -297,12 +303,12 @@ func create_phone_visuals():
 	screen.name = "Screen"
 	screen.mesh = screen_mesh
 	screen.material_override = screen_material
-	screen.position = Vector3(0, 0, 0.0055) # Slightly in front of body (0.01/2 + 0.001/2)
+	screen.position = Vector3(0, 0, 0.055) # Slightly in front of body (0.1/2 + 0.01/2)
 	phone_visual.add_child(screen)
 
 	# 3. Notch/Marker (Top of screen)
 	var notch_mesh = BoxMesh.new()
-	notch_mesh.size = Vector3(0.02, 0.005, 0.002)
+	notch_mesh.size = Vector3(0.2, 0.05, 0.02) # x10
 
 	var notch_material = StandardMaterial3D.new()
 	notch_material.albedo_color = Color(0.1, 0.1, 0.1)
@@ -311,7 +317,7 @@ func create_phone_visuals():
 	notch.name = "Notch"
 	notch.mesh = notch_mesh
 	notch.material_override = notch_material
-	notch.position = Vector3(0, 0.065, 0.006) # Near top
+	notch.position = Vector3(0, 0.65, 0.06) # Near top (1.5/2 - 0.1)
 	phone_visual.add_child(notch)
 
 func update_visualization(delta: float):
