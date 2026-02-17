@@ -1,39 +1,154 @@
-[gd_scene load_steps=7 format=3 uid="uid://c8yvxg3ulq3a2"]
+[gd_scene load_steps=28 format=3 uid="uid://c8yvxg3ulq3a2"]
 
 [ext_resource type="Script" path="res://sensor_server.gd" id="1_server"]
-[ext_resource type="Script" path="res://phone_visualizer.gd" id="2_visual"]
 
-[sub_resource type="BoxMesh" id="BoxMesh_phone"]
-size = Vector3(1.5, 3, 0.2)
+[sub_resource type="CylinderMesh" id="CylinderMesh_handle"]
+top_radius = 0.12
+bottom_radius = 0.15
+height = 1.8
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_phone"]
-albedo_color = Color(0.2, 0.6, 1, 1)
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_handle"]
+albedo_color = Color(0.6, 0.3, 0.1, 1)
+roughness = 0.6
+
+[sub_resource type="BoxMesh" id="BoxMesh_face"]
+size = Vector3(2.0, 2.4, 0.15)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_face_red"]
+albedo_color = Color(0.9, 0.1, 0.1, 1)
 roughness = 0.3
-metallic = 0.5
+metallic = 0.1
 
-[sub_resource type="BoxMesh" id="BoxMesh_screen"]
-size = Vector3(1.3, 2.6, 0.05)
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_screen"]
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_face_black"]
 albedo_color = Color(0.1, 0.1, 0.1, 1)
+roughness = 0.4
+
+[sub_resource type="BoxMesh" id="BoxMesh_rim"]
+size = Vector3(2.1, 2.5, 0.12)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_rim"]
+albedo_color = Color(0.15, 0.15, 0.4, 1)
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_arrow"]
+top_radius = 0.0
+bottom_radius = 0.15
+height = 0.8
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_arrow"]
+albedo_color = Color(0, 1, 0, 1)
 emission_enabled = true
-emission = Color(0, 0.3, 0.8, 1)
+emission = Color(0, 0.8, 0, 1)
 emission_energy = 0.5
 
-[sub_resource type="BoxMesh" id="BoxMesh_top_marker"]
-size = Vector3(0.3, 0.3, 0.22)
+[sub_resource type="SphereMesh" id="SphereMesh_pivot"]
+radius = 0.2
+height = 0.4
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_top_marker"]
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_pivot"]
+albedo_color = Color(1, 0.8, 0, 1)
+emission_enabled = true
+emission = Color(0.5, 0.4, 0, 1)
+emission_energy = 0.3
+
+[sub_resource type="ParticleProcessMaterial" id="ParticleProcessMaterial_trail"]
+emission_shape = 0
+direction = Vector3(0, 0, 0)
+spread = 0.0
+initial_velocity_min = 0.0
+initial_velocity_max = 0.0
+scale_min = 0.15
+scale_max = 0.4
+color = Color(1, 0.5, 0, 0.7)
+
+[sub_resource type="SphereMesh" id="SphereMesh_particle"]
+radius = 0.08
+height = 0.16
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_particle"]
+albedo_color = Color(1, 0.5, 0, 0.6)
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_lightsaber"]
+top_radius = 0.05
+bottom_radius = 0.08
+height = 1.0
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_lightsaber"]
+albedo_color = Color(0, 1, 0, 1)
+emission_enabled = true
+emission = Color(0, 1, 0, 1)
+emission_energy = 2.0
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_lightsaber_glow"]
+top_radius = 0.1
+bottom_radius = 0.13
+height = 1.0
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_lightsaber_glow"]
+albedo_color = Color(0, 1, 0, 0.3)
+transparency = 1
+emission_enabled = true
+emission = Color(0, 1, 0, 1)
+emission_energy = 1.0
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_axis_x"]
+top_radius = 0.03
+bottom_radius = 0.03
+height = 1.0
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_axis_x"]
 albedo_color = Color(1, 0, 0, 1)
 emission_enabled = true
-emission = Color(1, 0, 0, 1)
-emission_energy = 1.0
+emission = Color(0.8, 0, 0, 1)
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_axis_y"]
+top_radius = 0.03
+bottom_radius = 0.03
+height = 1.0
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_axis_y"]
+albedo_color = Color(0, 1, 0, 1)
+emission_enabled = true
+emission = Color(0, 0.8, 0, 1)
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_axis_z"]
+top_radius = 0.03
+bottom_radius = 0.03
+height = 1.0
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_axis_z"]
+albedo_color = Color(0, 0, 1, 1)
+emission_enabled = true
+emission = Color(0, 0, 0.8, 1)
+
+[sub_resource type="BoxMesh" id="BoxMesh_origin"]
+size = Vector3(0.3, 0.3, 0.3)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_origin"]
+albedo_color = Color(0, 1, 0, 1)
+emission_enabled = true
+emission = Color(0, 1, 0, 1)
+emission_energy = 0.5
+
+[sub_resource type="BoxMesh" id="BoxMesh_grid"]
+size = Vector3(20, 0.02, 20)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_grid"]
+albedo_color = Color(0.3, 0.3, 0.3, 0.3)
+transparency = 1
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_debug"]
+albedo_color = Color(1, 1, 1, 1)
+billboard_mode = 1
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1_server")
+friction = 5.0
+return_speed = 2.0
+origin_position = Vector3(0, 0, 0)
+max_displacement = 5.0
 
 [node name="Camera3D" type="Camera3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0.866025, 0.5, 0, -0.5, 0.866025, 0, 5, 8)
+transform = Transform3D(1, 0, 0, 0, 0.707107, 0.707107, 0, -0.707107, 0.707107, 0, 8, 8)
 fov = 60.0
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
@@ -41,35 +156,93 @@ transform = Transform3D(0.707107, -0.5, 0.5, 0, 0.707107, 0.707107, -0.707107, -
 light_energy = 1.5
 shadow_enabled = true
 
-[node name="PhoneModel" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 0)
-script = ExtResource("2_visual")
+[node name="PaddleModel" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
 
-[node name="PhoneBody" type="MeshInstance3D" parent="PhoneModel"]
-mesh = SubResource("BoxMesh_phone")
-surface_material_override/0 = SubResource("StandardMaterial3D_phone")
+[node name="Pivot" type="Node3D" parent="PaddleModel"]
 
-[node name="Screen" type="MeshInstance3D" parent="PhoneModel"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0.11)
-mesh = SubResource("BoxMesh_screen")
-surface_material_override/0 = SubResource("StandardMaterial3D_screen")
+[node name="Handle" type="MeshInstance3D" parent="PaddleModel/Pivot"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+mesh = SubResource("CylinderMesh_handle")
+surface_material_override/0 = SubResource("StandardMaterial3D_handle")
 
-[node name="TopMarker" type="MeshInstance3D" parent="PhoneModel"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.2, 0)
-mesh = SubResource("BoxMesh_top_marker")
-surface_material_override/0 = SubResource("StandardMaterial3D_top_marker")
+[node name="FaceRed" type="MeshInstance3D" parent="PaddleModel/Pivot"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.8, 0.08)
+mesh = SubResource("BoxMesh_face")
+surface_material_override/0 = SubResource("StandardMaterial3D_face_red")
 
-[node name="BottomMarker" type="MeshInstance3D" parent="PhoneModel"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.2, 0)
-mesh = SubResource("BoxMesh_top_marker")
-surface_material_override/0 = SubResource("StandardMaterial3D_top_marker")
+[node name="FaceBlack" type="MeshInstance3D" parent="PaddleModel/Pivot"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.8, -0.08)
+mesh = SubResource("BoxMesh_face")
+surface_material_override/0 = SubResource("StandardMaterial3D_face_black")
+
+[node name="Rim" type="MeshInstance3D" parent="PaddleModel/Pivot"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.8, 0)
+mesh = SubResource("BoxMesh_rim")
+surface_material_override/0 = SubResource("StandardMaterial3D_rim")
+
+[node name="DirectionArrow" type="MeshInstance3D" parent="PaddleModel/Pivot"]
+transform = Transform3D(1, 0, 0, 0, -4.37114e-08, -1, 0, 1, -4.37114e-08, 0, 2.8, 1.2)
+mesh = SubResource("CylinderMesh_arrow")
+surface_material_override/0 = SubResource("StandardMaterial3D_arrow")
+
+[node name="PivotMarker" type="MeshInstance3D" parent="PaddleModel/Pivot"]
+mesh = SubResource("SphereMesh_pivot")
+surface_material_override/0 = SubResource("StandardMaterial3D_pivot")
+
+[node name="TrailEmitter" type="GPUParticles3D" parent="PaddleModel/Pivot"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.5, 0)
+amount = 150
+lifetime = 0.6
+process_material = SubResource("ParticleProcessMaterial_trail")
+draw_pass_1 = SubResource("SphereMesh_particle")
+
+[node name="Lightsaber" type="MeshInstance3D" parent="PaddleModel/Pivot"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.5, 0)
+mesh = SubResource("CylinderMesh_lightsaber")
+surface_material_override/0 = SubResource("StandardMaterial3D_lightsaber")
+
+[node name="LightsaberGlow" type="MeshInstance3D" parent="PaddleModel/Pivot"]
+transform = Transform3D(1.2, 0, 0, 0, 1, 0, 0, 0, 1.2, 0, 3.5, 0)
+mesh = SubResource("CylinderMesh_lightsaber_glow")
+surface_material_override/0 = SubResource("StandardMaterial3D_lightsaber_glow")
+
+[node name="Axes" type="Node3D" parent="PaddleModel/Pivot"]
+
+[node name="AxisX" type="MeshInstance3D" parent="PaddleModel/Pivot/Axes"]
+transform = Transform3D(-4.37114e-08, -1, 0, 1, -4.37114e-08, 0, 0, 0, 1, 0.5, 0, 0)
+mesh = SubResource("CylinderMesh_axis_x")
+surface_material_override/0 = SubResource("StandardMaterial3D_axis_x")
+
+[node name="AxisY" type="MeshInstance3D" parent="PaddleModel/Pivot/Axes"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
+mesh = SubResource("CylinderMesh_axis_y")
+surface_material_override/0 = SubResource("StandardMaterial3D_axis_y")
+
+[node name="AxisZ" type="MeshInstance3D" parent="PaddleModel/Pivot/Axes"]
+transform = Transform3D(1, 0, 0, 0, -4.37114e-08, -1, 0, 1, -4.37114e-08, 0, 0, 0.5)
+mesh = SubResource("CylinderMesh_axis_z")
+surface_material_override/0 = SubResource("StandardMaterial3D_axis_z")
+
+[node name="DebugLabel3D" type="Label3D" parent="."]
+unique_name_in_owner = true
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 4.5, 0)
+pixel_size = 0.015
+billboard = 1
+text = "Accel: 0.00"
+font_size = 64
+outline_size = 4
+
+[node name="OriginMarker" type="MeshInstance3D" parent="."]
+mesh = SubResource("BoxMesh_origin")
+surface_material_override/0 = SubResource("StandardMaterial3D_origin")
+
+[node name="GroundGrid" type="MeshInstance3D" parent="."]
+mesh = SubResource("BoxMesh_grid")
+surface_material_override/0 = SubResource("StandardMaterial3D_grid")
 
 [node name="TrajectoryContainer" type="Node3D" parent="."]
 unique_name_in_owner = true
-
-[node name="GridMap" type="GridMap" parent="."]
-cell_size = Vector3(1, 0.1, 1)
-cell_octant_size = 16
 
 [node name="UI" type="Control" parent="."]
 layout_mode = 3
@@ -86,8 +259,8 @@ anchors_preset = 2
 anchor_top = 1.0
 anchor_bottom = 1.0
 offset_left = 20.0
-offset_top = -200.0
-offset_right = 400.0
+offset_top = -250.0
+offset_right = 450.0
 offset_bottom = -20.0
 grow_vertical = 0
 
@@ -101,19 +274,19 @@ text = "状态: 等待连接..."
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
-text = "加速度: X: 0.000 Y: 0.000 Z: 0.000"
+text = "UserAccel: 0.000"
 
-[node name="GyroLabel" type="Label" parent="UI/VBoxContainer"]
+[node name="RotationLabel" type="Label" parent="UI/VBoxContainer"]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
-text = "陀螺仪: X: 0.000 Y: 0.000 Z: 0.000"
+text = "Rotation: (0, 0, 0, 1)"
 
-[node name="GravityLabel" type="Label" parent="UI/VBoxContainer"]
+[node name="VelocityLabel" type="Label" parent="UI/VBoxContainer"]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
-text = "重力: X: 0.000 Y: 0.000 Z: 0.000"
+text = "速度: 0.000 m/s"
 
 [node name="PositionLabel" type="Label" parent="UI/VBoxContainer"]
 unique_name_in_owner = true
@@ -124,7 +297,7 @@ text = "位置: X: 0.000 Y: 0.000 Z: 0.000"
 [node name="Instructions" type="Label" parent="UI/VBoxContainer"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 14
-text = "快捷按钮在右侧"
+text = "R=重置 | C=清除轨迹 | L=加载 | O=文件列表 | P=回放 | S=保存"
 vertical_alignment = 2
 
 [node name="FileListPanel" type="Panel" parent="UI"]
@@ -198,6 +371,12 @@ unique_name_in_owner = true
 layout_mode = 2
 theme_override_font_sizes/font_size = 16
 text = "重置视角 (R)"
+
+[node name="CalibrateButton" type="Button" parent="UI/ButtonPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "校准姿态 (K)"
 
 [node name="Timer" type="Timer" parent="."]
 wait_time = 0.05
