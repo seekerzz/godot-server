@@ -238,7 +238,7 @@ func parse_binary_sensor_data(packet: PackedByteArray):
 
 	# 调试输出
 	if show_debug:
-		print("[接收#%d] UserAccel: (%.3f, %.3f, %.3f) | Rotation: (%.3f, %.3f, %.3f, %.3f)" % [
+		print("[接收#%d] 二进制数据 | UserAccel: (%.3f, %.3f, %.3f) | Quat: (%.3f, %.3f, %.3f, %.3f)" % [
 			frame_count,
 			user_accel_data.x, user_accel_data.y, user_accel_data.z,
 			current_rotation.x, current_rotation.y, current_rotation.z, current_rotation.w
@@ -311,7 +311,7 @@ func create_phone_model():
 
 	# 3. 机身 (Body) - 黑色长方体
 	var body_mesh = BoxMesh.new()
-	body_mesh.size = Vector3(0.7, 1.5, 0.08)
+	body_mesh.size = Vector3(3.5, 7.5, 0.4)
 
 	var body_material = StandardMaterial3D.new()
 	body_material.albedo_color = Color(0.1, 0.1, 0.1) # Black
@@ -325,7 +325,7 @@ func create_phone_model():
 
 	# 4. 屏幕 (Screen) - 正面
 	var screen_mesh = BoxMesh.new()
-	screen_mesh.size = Vector3(0.6, 1.4, 0.002) # Slightly thinner than body, sits on top
+	screen_mesh.size = Vector3(3.0, 7.0, 0.01) # Slightly thinner than body, sits on top
 
 	var screen_material = StandardMaterial3D.new()
 	screen_material.albedo_color = Color(0.0, 0.1, 0.3) # Dark Blue
@@ -337,12 +337,12 @@ func create_phone_model():
 	phone_screen_mesh.name = "Screen"
 	phone_screen_mesh.mesh = screen_mesh
 	phone_screen_mesh.material_override = screen_material
-	phone_screen_mesh.position = Vector3(0, 0, 0.041) # On top of body (0.08/2 + small offset)
+	phone_screen_mesh.position = Vector3(0, 0, 0.205) # On top of body (0.4/2 + small offset)
 	phone_pivot.add_child(phone_screen_mesh)
 
 	# 5. 方向标记 (Direction Marker) - 额头小白点
 	var marker_mesh = BoxMesh.new()
-	marker_mesh.size = Vector3(0.1, 0.02, 0.005)
+	marker_mesh.size = Vector3(0.5, 0.1, 0.025)
 
 	var marker_material = StandardMaterial3D.new()
 	marker_material.albedo_color = Color(1, 1, 1) # White
@@ -353,7 +353,7 @@ func create_phone_model():
 	marker.name = "DirectionMarker"
 	marker.mesh = marker_mesh
 	marker.material_override = marker_material
-	marker.position = Vector3(0, 0.65, 0.042) # Near top
+	marker.position = Vector3(0, 3.25, 0.21) # Near top
 	phone_pivot.add_child(marker)
 
 func _update_screen_feedback():
@@ -397,13 +397,13 @@ func update_phone_visualization(delta: float):
 	_update_screen_feedback()
 
 	# 更新轨迹
-	add_trajectory_point(phone_position + Vector3(0, 0.75, 0))
+	add_trajectory_point(phone_position + Vector3(0, 3.75, 0))
 
 	# 4. 更新调试3D标签
 	if debug_label_3d:
 		var accel_mag = user_accel_data.length()
 		debug_label_3d.text = "Accel: %.2f" % accel_mag
-		debug_label_3d.position = phone_position + Vector3(0, 2.0, 0) # Adjusted height for phone
+		debug_label_3d.position = phone_position + Vector3(0, 10.0, 0) # Adjusted height for phone
 
 
 func convert_quaternion_to_godot(q: Quaternion) -> Quaternion:
