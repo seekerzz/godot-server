@@ -1,0 +1,32 @@
+{
+  "dirs": [
+    "res://tests/unit",
+    "res://tests/integration",
+    "res://tests/performance"
+  ],
+  "include_subdirs": true,
+  "ignore_pause": true,
+  "log_level": 2,
+  "opacity": 100,
+  "prefix": "test_",
+  "selected": "",
+  "should_exit": true,
+  "should_maximize": false,
+  "compact_mode": false,
+  "font_size": 16,
+  "font_color": "C6C6C6",
+  "background_color": "000000",
+  "font_name": "CourierPrime",
+  "hide_orphans": false,
+  "double_strategy": "partial",
+  "include_addons": false,
+  "inner_class": "",
+  "post_run_script": "",
+  "pre_run_script": "",
+  "show_help": false,
+  "suffix": ".gd",
+  "tests": [],
+  "unit_test_name": "",
+  "gut_on_top": true,
+  "panel_button": "GUT"
+}

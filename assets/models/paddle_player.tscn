@@ -1,0 +1,43 @@
+[gd_scene load_steps=6 format=3 uid="uid://paddle_player_scene"]
+
+[ext_resource type="Material" uid="uid://paddle_player_material" path="res://assets/materials/mat_paddle_player.tres" id="1_mat"]
+
+[sub_resource type="BoxMesh" id="BoxMesh_PhoneBody"]
+size = Vector3(0.075, 0.008, 0.16)
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_PaddleFace"]
+top_radius = 0.06
+bottom_radius = 0.06
+height = 0.01
+radial_segments = 16
+rings = 1
+
+[sub_resource type="BoxMesh" id="BoxMesh_HitIndicator"]
+size = Vector3(0.05, 0.002, 0.05)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_HitZone"]
+albedo_color = Color(1, 1, 1, 0.9)
+emission_enabled = true
+emission = Color(0.5, 0.9, 1, 1)
+emission_energy_multiplier = 0.8
+
+[node name="PaddlePlayer" type="Node3D"]
+
+[node name="PhoneBody" type="MeshInstance3D" parent="."]
+mesh = SubResource("BoxMesh_PhoneBody")
+surface_material_override/0 = ExtResource("1_mat")
+
+[node name="PaddleFace" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0.12)
+mesh = SubResource("CylinderMesh_PaddleFace")
+surface_material_override/0 = ExtResource("1_mat")
+
+[node name="HitIndicator" type="MeshInstance3D" parent="PaddleFace"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.006, 0)
+mesh = SubResource("BoxMesh_HitIndicator")
+surface_material_override/0 = SubResource("StandardMaterial3D_HitZone")
+
+[node name="GlowLight" type="OmniLight3D" parent="."]
+light_color = Color(0, 0.83, 1, 1)
+light_energy = 0.5
+omni_range = 0.5

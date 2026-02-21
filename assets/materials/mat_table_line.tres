@@ -1,0 +1,10 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://table_line_material"]
+
+[resource]
+resource_name = "TableLineMaterial"
+albedo_color = Color(0, 0.83, 1, 1)
+metallic = 0.0
+roughness = 0.5
+emission_enabled = true
+emission = Color(0, 0.83, 1, 1)
+emission_energy_multiplier = 0.5

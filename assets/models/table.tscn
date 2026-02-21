@@ -1,0 +1,81 @@
+[gd_scene load_steps=9 format=3 uid="uid://table_scene"]
+
+[ext_resource type="Material" uid="uid://table_surface_material" path="res://assets/materials/mat_table_surface.tres" id="1_surface"]
+[ext_resource type="Material" uid="uid://table_line_material" path="res://assets/materials/mat_table_line.tres" id="2_line"]
+[ext_resource type="Material" uid="uid://table_frame_material" path="res://assets/materials/mat_table_frame.tres" id="3_frame"]
+[ext_resource type="Material" uid="uid://net_material" path="res://assets/materials/mat_net.tres" id="4_net"]
+
+[sub_resource type="BoxMesh" id="BoxMesh_TableTop"]
+size = Vector3(1.525, 0.02, 2.74)
+
+[sub_resource type="BoxMesh" id="BoxMesh_CenterLine"]
+size = Vector3(0.02, 0.022, 2.74)
+
+[sub_resource type="BoxMesh" id="BoxMesh_SideLine"]
+size = Vector3(1.525, 0.022, 0.02)
+
+[sub_resource type="BoxMesh" id="BoxMesh_Frame"]
+size = Vector3(1.545, 0.04, 2.76)
+
+[sub_resource type="BoxMesh" id="BoxMesh_Net"]
+size = Vector3(1.525, 0.1525, 0.005)
+
+[node name="Table" type="Node3D"]
+
+[node name="TableTop" type="MeshInstance3D" parent="."]
+mesh = SubResource("BoxMesh_TableTop")
+surface_material_override/0 = ExtResource("1_surface")
+
+[node name="CenterLine" type="MeshInstance3D" parent="."]
+mesh = SubResource("BoxMesh_CenterLine")
+surface_material_override/0 = ExtResource("2_line")
+
+[node name="SideLine1" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1.36)
+mesh = SubResource("BoxMesh_SideLine")
+surface_material_override/0 = ExtResource("2_line")
+
+[node name="SideLine2" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -1.36)
+mesh = SubResource("BoxMesh_SideLine")
+surface_material_override/0 = ExtResource("2_line")
+
+[node name="EndLine1" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.7525, 0, 0)
+mesh = SubResource("BoxMesh_SideLine")
+surface_material_override/0 = ExtResource("2_line")
+
+[node name="EndLine2" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.7525, 0, 0)
+mesh = SubResource("BoxMesh_SideLine")
+surface_material_override/0 = ExtResource("2_line")
+
+[node name="Frame" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.03, 0)
+mesh = SubResource("BoxMesh_Frame")
+surface_material_override/0 = ExtResource("3_frame")
+
+[node name="Net" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.086, 0)
+mesh = SubResource("BoxMesh_Net")
+surface_material_override/0 = ExtResource("4_net")
+
+[node name="Leg1" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.7, -0.38, 1.2)
+mesh = SubResource("BoxMesh_Net")
+surface_material_override/0 = ExtResource("3_frame")
+
+[node name="Leg2" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.7, -0.38, 1.2)
+mesh = SubResource("BoxMesh_Net")
+surface_material_override/0 = ExtResource("3_frame")
+
+[node name="Leg3" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.7, -0.38, -1.2)
+mesh = SubResource("BoxMesh_Net")
+surface_material_override/0 = ExtResource("3_frame")
+
+[node name="Leg4" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.7, -0.38, -1.2)
+mesh = SubResource("BoxMesh_Net")
+surface_material_override/0 = ExtResource("3_frame")

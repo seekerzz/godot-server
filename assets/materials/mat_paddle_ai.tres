@@ -1,0 +1,11 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://paddle_ai_material"]
+
+[resource]
+resource_name = "PaddleAIMaterial"
+albedo_color = Color(0.72, 0.16, 0.87, 0.8)
+metallic = 0.3
+roughness = 0.2
+transparency = 1
+emission_enabled = true
+emission = Color(0.72, 0.16, 0.87, 1)
+emission_energy_multiplier = 0.7

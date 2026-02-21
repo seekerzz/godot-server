@@ -1,0 +1,11 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://paddle_player_material"]
+
+[resource]
+resource_name = "PaddlePlayerMaterial"
+albedo_color = Color(0, 0.83, 1, 0.8)
+metallic = 0.3
+roughness = 0.2
+transparency = 1
+emission_enabled = true
+emission = Color(0, 0.83, 1, 1)
+emission_energy_multiplier = 0.5

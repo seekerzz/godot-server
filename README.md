@@ -4,6 +4,22 @@
 
 ---
 
+## 开发团队职责
+
+### 代码提交前必须执行
+
+1. **运行验证**
+   - 每次增加新功能或修改代码后，必须用 Godot 直接运行对应场景
+   - 验证场景能正常加载，没有报错
+   - 验证核心功能正常工作
+
+2. **测试场景**
+   - `main.tscn` - 手机可视化场景（原版）
+   - `scenes/main_game.tscn` - 乒乓球拍场景（新设计）
+   - `scenes/phone_visualizer.tscn` - 手机可视化场景（副本）
+
+---
+
 ## 功能特性
 
 - **实时接收传感器数据**: 通过UDP网络接收手机加速度计、陀螺仪、重力传感器、磁力计数据
@@ -17,8 +33,16 @@
 
 ```
 godot_server/
+├── src/                  # 源代码目录
+│   ├── core/             # 核心管理器
+│   ├── entities/         # 游戏实体（球拍等）
+│   ├── physics/          # 物理系统
+│   └── sensor/           # 传感器相关
+├── scenes/               # 场景文件
+├── tests/                # 测试文件
+├── assets/               # 资源文件
 ├── icon.svg              # 应用图标
-├── main.tscn             # 主3D场景
+├── main.tscn             # 主3D场景（手机可视化）
 ├── sensor_server.gd      # 传感器接收与可视化脚本
 ├── phone_visualizer.gd   # 手机模型可视化脚本
 ├── export_presets.cfg    # Windows导出配置
@@ -30,7 +54,21 @@ godot_server/
 
 ## 使用说明
 
-### 1. 配置PC端
+### 1. 运行场景验证（开发时必须执行）
+
+每次修改代码后，必须用 Godot 运行对应场景验证：
+
+```bash
+# 运行手机可视化场景
+godot main.tscn
+
+# 运行乒乓球拍场景
+godot scenes/main_game.tscn
+```
+
+确保场景加载无报错，功能正常。
+
+### 2. 配置PC端
 
 编辑 `sensor_sender.gd` 中的服务器IP地址（根据你的PC实际IP）：
 
@@ -110,6 +148,17 @@ godot --headless --export-release "Windows Desktop" ./sensor_server.exe
 | 端口 | 39433 (UDP) |
 
 ---
+
+## 校准流程
+
+### 手机场景 (`main.tscn`)
+- **自动校准**: 收到第一帧重力数据时自动校准
+- **手动重置**: 按 **R** 键重置视角并重新校准
+
+### 乒乓球拍场景 (`scenes/main_game.tscn`)
+- 按 **K** 键开始校准
+- 像握球拍一样竖直握持手机，屏幕面向自己
+- 按 **Enter** 键确认校准
 
 ## 轨迹计算原理
 

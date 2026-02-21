@@ -1,0 +1,176 @@
+[gd_scene load_steps=19 format=3 uid="uid://maingameunique"]
+
+[ext_resource type="Script" path="res://src/core/game_manager.gd" id="1_game_manager"]
+[ext_resource type="Script" path="res://src/sensor/sensor_server_core.gd" id="2_sensor_server"]
+[ext_resource type="Script" path="res://src/sensor/sensor_fusion.gd" id="3_sensor_fusion"]
+[ext_resource type="Script" path="res://src/sensor/paddle_calibration.gd" id="4_calibration"]
+[ext_resource type="Script" path="res://src/entities/paddle.gd" id="5_paddle"]
+[ext_resource type="Script" path="res://src/physics/ball.gd" id="6_ball"]
+[ext_resource type="Script" path="res://src/physics/collision_manager.gd" id="7_collision"]
+[ext_resource type="Script" path="res://scenes/main_game.gd" id="8_main"]
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_ground"]
+size = Vector2(20, 20)
+
+[sub_resource type="WorldBoundaryShape3D" id="WorldBoundaryShape3D_ground"]
+
+[sub_resource type="BoxMesh" id="BoxMesh_table"]
+size = Vector3(1.525, 0.02, 2.74)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_table"]
+size = Vector3(1.525, 0.02, 2.74)
+
+[sub_resource type="BoxMesh" id="BoxMesh_net"]
+size = Vector3(1.525, 0.1525, 0.02)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_net"]
+size = Vector3(1.525, 0.1525, 0.02)
+
+[sub_resource type="BoxMesh" id="BoxMesh_origin"]
+size = Vector3(0.1, 0.1, 0.1)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_origin"]
+albedo_color = Color(0, 1, 0, 1)
+emission_enabled = true
+emission = Color(0, 1, 0, 1)
+
+[sub_resource type="Environment" id="Environment_main"]
+background_mode = 1
+background_color = Color(0.1, 0.1, 0.15, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.4, 0.4, 0.5, 1)
+ambient_light_energy = 0.6
+
+[node name="MainGame" type="Node3D"]
+script = ExtResource("8_main")
+
+[node name="GameManager" type="Node" parent="."]
+script = ExtResource("1_game_manager")
+
+[node name="SensorServerCore" type="Node" parent="GameManager"]
+script = ExtResource("2_sensor_server")
+
+[node name="SensorFusion" type="Node" parent="GameManager"]
+script = ExtResource("3_sensor_fusion")
+
+[node name="PaddleCalibration" type="Node" parent="GameManager"]
+script = ExtResource("4_calibration")
+
+[node name="PlayerPaddle" type="Node3D" parent="GameManager"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.2, -0.8)
+script = ExtResource("5_paddle")
+
+[node name="Ball" type="RigidBody3D" parent="GameManager"]
+script = ExtResource("6_ball")
+
+[node name="CollisionManager" type="Node3D" parent="GameManager"]
+script = ExtResource("7_collision")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.766044, 0.642788, 0, -0.642788, 0.766044, 0, 2.5, 3.5)
+fov = 55.0
+current = true
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.707107, -0.5, 0.5, 0, 0.707107, 0.707107, -0.707107, -0.5, 0.5, 5, 10, 5)
+light_energy = 2.0
+shadow_enabled = true
+
+[node name="OmniLight3D" type="OmniLight3D" parent="."]
+position = Vector3(0, 3, 0)
+light_energy = 1.0
+omni_range = 10.0
+
+[node name="Environment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_main")
+
+[node name="Ground" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.01, 0)
+mesh = SubResource("PlaneMesh_ground")
+
+[node name="GroundBody" type="StaticBody3D" parent="Ground"]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Ground/GroundBody"]
+shape = SubResource("WorldBoundaryShape3D_ground")
+
+[node name="Table" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.76, 0)
+mesh = SubResource("BoxMesh_table")
+
+[node name="TableBody" type="StaticBody3D" parent="Table"]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Table/TableBody"]
+shape = SubResource("BoxShape3D_table")
+
+[node name="Net" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.91, 0)
+mesh = SubResource("BoxMesh_net")
+
+[node name="NetBody" type="StaticBody3D" parent="Net"]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Net/NetBody"]
+shape = SubResource("BoxShape3D_net")
+
+[node name="OriginMarker" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.8, 0.9, 0)
+mesh = SubResource("BoxMesh_origin")
+surface_material_override/0 = SubResource("StandardMaterial3D_origin")
+cast_shadow = false
+
+[node name="CanvasLayer" type="CanvasLayer" parent="."]
+
+[node name="Control" type="Control" parent="CanvasLayer"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="StatusLabel" type="Label" parent="CanvasLayer/Control"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_bottom = 30.0
+grow_horizontal = 2
+text = "状态: 等待连接..."
+horizontal_alignment = 1
+
+[node name="DebugLabel" type="Label" parent="CanvasLayer/Control"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 10.0
+offset_top = -150.0
+offset_right = 400.0
+offset_bottom = -10.0
+grow_vertical = 0
+text = "调试信息:
+空格键: 开始/暂停游戏
+R键: 重置球拍
+K键: 开始校准(竖直握持手机)
+Enter键: 确认校准
+ESC键: 退出
+
+握持方式: 像握乒乓球拍一样竖直握持手机，屏幕朝向你"
+
+[node name="Instructions" type="Label" parent="CanvasLayer/Control"]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -300.0
+offset_top = 40.0
+offset_right = -10.0
+offset_bottom = 200.0
+grow_horizontal = 0
+text = "操作说明:
+1. 像握球拍一样竖直握持手机
+2. 确保手机屏幕面向你自己
+3. 打开手机App并连接
+4. 按K键校准，按Enter确认
+5. 挥动手机控制球拍击球"
+horizontal_alignment = 2

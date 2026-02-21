@@ -14,9 +14,9 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 
 [application]
 
-config/name="PC传感器数据接收端"
-config/description="接收手机传感器数据并3D可视化"
-run/main_scene="res://main.tscn"
+config/name="混合现实乒乓球游戏"
+config/description="使用手机当球拍的混合现实乒乓球游戏"
+run/main_scene="uid://cos2covfdaua3"
 config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://icon.svg"
 

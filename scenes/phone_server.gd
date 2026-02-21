@@ -81,11 +81,21 @@ var calibration_offset := Quaternion.IDENTITY
 var frame_count := 0
 var last_packet_time := 0.0
 
+# 校准系统（单次校准）
+var is_calibrating := false
+
 func _ready():
 	start_server()
 	create_ground_grid()
 	connect_buttons()
-	create_phone_model()
+	# 尝试查找场景中已有的手机模型，如果不存在则创建
+	phone_model = get_node_or_null("PhoneModel")
+	if phone_model:
+		phone_pivot = phone_model.get_node_or_null("Pivot")
+		phone_screen_mesh = phone_pivot.get_node_or_null("Screen") if phone_pivot else null
+		print("[手机模型] 使用场景中的现有模型")
+	else:
+		create_phone_model()
 	print("[控制] 按键说明: R=重置视角 | C=清除轨迹 | L=加载最近文件 | O=查看接收文件 | P=回放 | S=保存数据 | ESC=退出")
 	print("[提示] 接收的文件保存在 received_files/ 文件夹，也可以使用右侧按钮操作")
 
@@ -101,21 +111,28 @@ func connect_buttons():
 	if reset_button:
 		reset_button.pressed.connect(reset_view)
 	if calibrate_button:
-		calibrate_button.pressed.connect(reset_view)  # 校准按钮现在也是重置视角/单步校准
+		calibrate_button.pressed.connect(on_calibrate_button_pressed)
+
+func on_calibrate_button_pressed():
+	"""校准按钮点击处理"""
+	if is_calibrating:
+		# 校准模式下，按钮变成确认按钮
+		record_calibration_sample()
+	else:
+		# 非校准模式下，开始校准
+		start_calibration()
 
 func start_server():
 	udp_socket = PacketPeerUDP.new()
 	var err = udp_socket.bind(SERVER_PORT, "0.0.0.0")
 	if err == OK:
-		if status_label:
-			status_label.text = "状态: 服务器已启动 (端口 %d)" % SERVER_PORT
-			status_label.modulate = Color.GREEN
+		status_label.text = "状态: 服务器已启动 (端口 %d)" % SERVER_PORT
+		status_label.modulate = Color.GREEN
 		print("[服务器] 已在端口 ", SERVER_PORT, " 启动")
 		print("[服务器] 已绑定: ", udp_socket.is_bound())
 	else:
-		if status_label:
-			status_label.text = "状态: 服务器启动失败 (%d)" % err
-			status_label.modulate = Color.RED
+		status_label.text = "状态: 服务器启动失败 (%d)" % err
+		status_label.modulate = Color.RED
 		print("[服务器] 启动失败: ", err)
 
 func _process(delta):
@@ -223,7 +240,7 @@ func parse_binary_sensor_data(packet: PackedByteArray):
 			"user_accel": {"x": user_accel_data.x, "y": user_accel_data.y, "z": user_accel_data.z},
 			"quaternion": {"x": current_rotation.x, "y": current_rotation.y, "z": current_rotation.z, "w": current_rotation.w}
 		})
-		if recorded_data.size() % 60 == 0 and status_label:
+		if recorded_data.size() % 60 == 0:
 			status_label.text = "录制中... [%d 帧]" % recorded_data.size()
 
 func parse_control_message(json_str: String):
@@ -353,13 +370,17 @@ func _update_screen_feedback():
 
 
 func update_phone_visualization(delta: float):
-	if phone_model == null or phone_pivot == null:
+	if phone_model == null:
 		return
 
 	# 1. 姿态：应用校准后的旋转
 	var raw_rotation = convert_quaternion_to_godot(current_rotation)
 	var final_rotation = calibration_offset * raw_rotation
-	phone_pivot.quaternion = final_rotation
+	# 如果有 pivot 节点则旋转 pivot，否则直接旋转 phone_model
+	if phone_pivot:
+		phone_pivot.quaternion = final_rotation
+	else:
+		phone_model.quaternion = final_rotation
 
 	# 2. 位置：弹性回中算法
 	_update_phone_position(delta)
@@ -473,9 +494,6 @@ func create_grid_line(start_pos: Vector3, end_pos: Vector3, color: Color):
 	add_child(mesh_instance)
 
 func update_ui():
-	# 检查UI标签是否已初始化
-	if accel_label == null or rotation_label == null or velocity_label == null or position_label == null:
-		return
 	var accel_mag = user_accel_data.length()
 	accel_label.text = "UserAccel: %.3f (%.3f, %.3f, %.3f)" % [accel_mag, user_accel_data.x, user_accel_data.y, user_accel_data.z]
 	rotation_label.text = "Rotation: (%.3f, %.3f, %.3f, %.3f)" % [current_rotation.x, current_rotation.y, current_rotation.z, current_rotation.w]
@@ -487,6 +505,11 @@ func _input(event):
 		get_tree().quit()
 
 	if event is InputEventKey and event.pressed:
+		# 校准模式下的确认键
+		if is_calibrating and event.keycode == KEY_ENTER:
+			record_calibration_sample()
+			return
+
 		match event.keycode:
 			KEY_C:
 				clear_trajectory()
@@ -498,8 +521,10 @@ func _input(event):
 				toggle_local_playback()
 			KEY_S:
 				save_playback_buffer_to_file()
-			KEY_R, KEY_K:
-				reset_view()  # R键和K键都用于重置/校准
+			KEY_R:
+				reset_view()
+			KEY_K:
+				start_calibration()
 
 func reset_view():
 	phone_position = Vector3.ZERO
@@ -533,9 +558,8 @@ func start_recording():
 		datetime.hour, datetime.minute, datetime.second
 	]
 
-	if status_label:
-		status_label.text = "开始录制..."
-		status_label.modulate = Color.RED
+	status_label.text = "开始录制..."
+	status_label.modulate = Color.RED
 	print("[录制] 开始录制，文件名前缀: ", current_record_date)
 
 func stop_recording():
@@ -543,8 +567,7 @@ func stop_recording():
 		return
 
 	is_recording = false
-	if status_label:
-		status_label.text = "录制结束，保存中..."
+	status_label.text = "录制结束，保存中..."
 	save_recorded_data()
 
 func save_recorded_data():
@@ -563,9 +586,8 @@ func save_recorded_data():
 		file.store_string(JSON.stringify(output, "\t"))
 		file.close()
 		print("[录制] 数据已保存到: ", filename, " (", recorded_data.size(), " 帧)")
-		if status_label:
-			status_label.text = "录制已保存: " + filename.get_file()
-			status_label.modulate = Color.GREEN
+		status_label.text = "录制已保存: " + filename.get_file()
+		status_label.modulate = Color.GREEN
 	else:
 		print("[录制] 保存失败")
 		status_label.text = "保存失败"
@@ -912,8 +934,7 @@ func update_file_list_ui(files: Array[String]):
 		return
 
 	if files.is_empty():
-		if file_list_label:
-			file_list_label.text = "接收文件列表:\n(暂无文件)"
+		file_list_label.text = "接收文件列表:\n(暂无文件)"
 		return
 
 	var text = "接收文件列表:\n"
@@ -932,8 +953,7 @@ func update_file_list_ui(files: Array[String]):
 	if files.size() > 5:
 		text += "...还有 %d 个文件" % (files.size() - 5)
 
-	if file_list_label:
-		file_list_label.text = text
+	file_list_label.text = text
 
 func load_most_recent_received_file():
 	print("\n[加载] 查找最近接收的文件...")
@@ -1001,3 +1021,95 @@ func load_and_play_file(filepath: String):
 
 	# 自动开始回放
 	start_local_playback()
+
+# ===== 校准功能 =====
+
+func start_calibration():
+	"""开始单次校准流程"""
+	is_calibrating = true
+
+	print("\n========== 开始姿态校准 ==========")
+	print("请将手机屏幕面向自己，竖直放置，然后点击确认")
+
+	# 更新UI显示
+	status_label.text = "校准:\n请将手机屏幕面向自己，竖直放置\n然后点击确认或按 Enter 键"
+	status_label.modulate = Color.YELLOW
+
+	# 更新按钮文本为"确认"
+	if calibrate_button:
+		calibrate_button.text = "确认校准 (Enter)"
+
+func record_calibration_sample():
+	"""记录当前姿态作为校准基准"""
+	if not is_calibrating:
+		return
+
+	# 计算校准偏移：将当前姿态的逆设为偏移
+	var raw_rotation = convert_quaternion_to_godot(current_rotation)
+	calibration_offset = raw_rotation.inverse()
+
+	print("[校准记录] 原始四元数: (%.4f, %.4f, %.4f, %.4f)" % [
+		current_rotation.x, current_rotation.y, current_rotation.z, current_rotation.w
+	])
+	print("[校准记录] 校准偏移: (%.4f, %.4f, %.4f, %.4f)" % [
+		calibration_offset.x, calibration_offset.y, calibration_offset.z, calibration_offset.w
+	])
+
+	# 完成校准
+	finish_calibration()
+
+func finish_calibration():
+	"""完成校准"""
+	is_calibrating = false
+
+	print("\n========== 校准完成 ==========")
+
+	# 保存校准数据到文件
+	save_calibration_data()
+
+	status_label.text = "校准完成！数据已保存"
+	status_label.modulate = Color.GREEN
+
+	# 恢复按钮文本
+	if calibrate_button:
+		calibrate_button.text = "校准姿态 (K)"
+
+func save_calibration_data():
+	"""保存校准数据到文件"""
+	var datetime = Time.get_datetime_dict_from_system()
+	var filename = "user://calibration_%04d%02d%02d_%02d%02d%02d.json" % [
+		datetime.year, datetime.month, datetime.day,
+		datetime.hour, datetime.minute, datetime.second
+	]
+
+	var output = {
+		"calibration_date": "%04d-%02d-%02d %02d:%02d:%02d" % [
+			datetime.year, datetime.month, datetime.day,
+			datetime.hour, datetime.minute, datetime.second
+		],
+		"calibration_offset": {
+			"x": calibration_offset.x,
+			"y": calibration_offset.y,
+			"z": calibration_offset.z,
+			"w": calibration_offset.w
+		},
+		"base_pose": {
+			"x": current_rotation.x,
+			"y": current_rotation.y,
+			"z": current_rotation.z,
+			"w": current_rotation.w
+		}
+	}
+
+	var file = FileAccess.open(filename, FileAccess.WRITE)
+	if file:
+		file.store_string(JSON.stringify(output, "\t"))
+		file.close()
+		print("[校准保存] 数据已保存到: %s" % filename)
+
+	# 同时保存一个固定名称的文件用于调试
+	var debug_file = FileAccess.open("user://calibration_data.json", FileAccess.WRITE)
+	if debug_file:
+		debug_file.store_string(JSON.stringify(output, "\t"))
+		debug_file.close()
+		print("[校准保存] 调试数据已保存到: user://calibration_data.json")

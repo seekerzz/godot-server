@@ -1,0 +1,20 @@
+[gd_scene load_steps=3 format=3 uid="uid://ball_scene"]
+
+[ext_resource type="Material" uid="uid://ball_material" path="res://assets/materials/mat_ball.tres" id="1_mat"]
+
+[sub_resource type="SphereMesh" id="SphereMesh_Ball"]
+radius = 0.02
+height = 0.04
+radial_segments = 16
+rings = 8
+
+[node name="Ball" type="Node3D"]
+
+[node name="BallMesh" type="MeshInstance3D" parent="."]
+mesh = SubResource("SphereMesh_Ball")
+surface_material_override/0 = ExtResource("1_mat")
+
+[node name="GlowLight" type="OmniLight3D" parent="."]
+light_color = Color(1, 1, 1, 1)
+light_energy = 0.3
+omni_range = 0.3

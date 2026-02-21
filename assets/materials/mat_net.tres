@@ -1,0 +1,8 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://net_material"]
+
+[resource]
+resource_name = "NetMaterial"
+albedo_color = Color(0.8, 0.8, 0.85, 0.6)
+metallic = 0.2
+roughness = 0.4
+transparency = 1

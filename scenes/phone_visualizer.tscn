@@ -1,0 +1,162 @@
+[gd_scene load_steps=2 format=3 uid="uid://dvay55lyj37i0"]
+
+[ext_resource type="Script" path="res://sensor_server.gd" id="1_server"]
+
+[node name="Main" type="Node3D"]
+script = ExtResource("1_server")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.866025, 0.5, 0, -0.5, 0.866025, 0, 5, 8)
+fov = 60.0
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.707107, -0.5, 0.5, 0, 0.707107, 0.707107, -0.707107, -0.5, 0.5, 5, 10, 5)
+light_energy = 1.5
+shadow_enabled = true
+
+[node name="TrajectoryContainer" type="Node3D" parent="."]
+unique_name_in_owner = true
+
+[node name="GridMap" type="GridMap" parent="."]
+cell_size = Vector3(1, 0.1, 1)
+cell_octant_size = 16
+
+[node name="UI" type="Control" parent="."]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 0
+
+[node name="VBoxContainer" type="VBoxContainer" parent="UI"]
+layout_mode = 1
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 20.0
+offset_top = -200.0
+offset_right = 400.0
+offset_bottom = -20.0
+grow_vertical = 0
+
+[node name="StatusLabel" type="Label" parent="UI/VBoxContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 24
+text = "状态: 等待连接..."
+
+[node name="AccelLabel" type="Label" parent="UI/VBoxContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "加速度: X: 0.000 Y: 0.000 Z: 0.000"
+
+[node name="GyroLabel" type="Label" parent="UI/VBoxContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "陀螺仪: X: 0.000 Y: 0.000 Z: 0.000"
+
+[node name="GravityLabel" type="Label" parent="UI/VBoxContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "重力: X: 0.000 Y: 0.000 Z: 0.000"
+
+[node name="PositionLabel" type="Label" parent="UI/VBoxContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "位置: X: 0.000 Y: 0.000 Z: 0.000"
+
+[node name="Instructions" type="Label" parent="UI/VBoxContainer"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "快捷按钮在右侧"
+vertical_alignment = 2
+
+[node name="FileListPanel" type="Panel" parent="UI"]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -300.0
+offset_top = 20.0
+offset_right = -20.0
+offset_bottom = 200.0
+grow_horizontal = 0
+
+[node name="FileListLabel" type="Label" parent="UI/FileListPanel"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 10.0
+offset_top = 10.0
+offset_right = -10.0
+offset_bottom = -10.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_font_sizes/font_size = 14
+text = "接收文件列表:\n(点击'查看接收文件'按钮)"
+autowrap_mode = 3
+
+[node name="ButtonPanel" type="VBoxContainer" parent="UI"]
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -180.0
+offset_top = -300.0
+offset_right = -20.0
+offset_bottom = -20.0
+grow_horizontal = 0
+grow_vertical = 0
+theme_override_constants/separation = 10
+
+[node name="ListFilesButton" type="Button" parent="UI/ButtonPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "查看接收文件 (O)"
+
+[node name="LoadRecentButton" type="Button" parent="UI/ButtonPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "加载最近文件 (L)"
+
+[node name="PlaybackButton" type="Button" parent="UI/ButtonPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "开始回放 (P)"
+
+[node name="ClearButton" type="Button" parent="UI/ButtonPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "清除轨迹 (C)"
+
+[node name="ResetButton" type="Button" parent="UI/ButtonPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "重置视角 (R)"
+
+[node name="CalibrateButton" type="Button" parent="UI/ButtonPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "校准姿态 (K)"
+
+[node name="Timer" type="Timer" parent="."]
+wait_time = 0.05
+autostart = true
+
+[connection signal="timeout" from="Timer" to="." method="_on_timer_timeout"]
